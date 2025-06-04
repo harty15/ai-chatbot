@@ -42,8 +42,8 @@ export const myProvider = isTestEnvironment
         'o1-mini': openai('o1-mini'),
         o3: openai('o3'),
         'o3-mini': openai('o3-mini'),
-        'o4-mini': openai('gpt-4o-mini'),
-        'o4-mini-high': openai('gpt-4o'),
+        'o4-mini': openai('o4-mini'),
+        'o4-mini-high': openai('o4-mini-high'),
 
         // Gemini (Google DeepMind) Models
         'gemini-2.5-pro': google('models/gemini-2.5-pro'),
