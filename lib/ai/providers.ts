@@ -14,6 +14,11 @@ import {
   titleModel,
 } from './models.test';
 
+console.log('🔧 AI Provider: Initializing provider...', {
+  isTestEnvironment,
+  environment: process.env.NODE_ENV,
+});
+
 export const myProvider = isTestEnvironment
   ? customProvider({
       languageModels: {
@@ -38,12 +43,24 @@ export const myProvider = isTestEnvironment
         'gpt-4o': openai('gpt-4o'),
         'gpt-4.1': openai('gpt-4.1'),
         'gpt-4.5': openai('gpt-4.5'),
-        o1: openai('o1'),
-        'o1-mini': openai('o1-mini'),
-        o3: openai('o3'),
-        'o3-mini': openai('o3-mini'),
+
+        // OpenAI Reasoning Models
+        // o1 series use extractReasoningMiddleware
+        o1: wrapLanguageModel({
+          model: openai('o1'),
+          middleware: extractReasoningMiddleware({ tagName: 'think' }),
+        }),
+        'o1-mini': wrapLanguageModel({
+          model: openai('o1-mini'),
+          middleware: extractReasoningMiddleware({ tagName: 'think' }),
+        }),
+
+        // o3 series have built-in reasoning - use responses API for reasoning summaries
+        o3: openai.responses('o3'),
+        'o3-mini': openai.responses('o3-mini'),
+
+        // o4 series (assuming similar to o3)
         'o4-mini': openai('o4-mini'),
-        'o4-mini-high': openai('o4-mini-high'),
 
         // Gemini (Google DeepMind) Models
         'gemini-2.5-pro': google('models/gemini-2.5-pro'),
@@ -65,3 +82,41 @@ export const myProvider = isTestEnvironment
         'small-model': openai.image('dall-e-3'),
       },
     });
+
+console.log('✅ AI Provider: Provider initialized successfully');
+
+// Export available model list for debugging
+export const availableModels = isTestEnvironment
+  ? ['chat-model', 'chat-model-reasoning', 'title-model', 'artifact-model']
+  : [
+      'chat-model',
+      'chat-model-reasoning',
+      'title-model',
+      'artifact-model',
+      'gpt-4o',
+      'gpt-4.1',
+      'gpt-4.5',
+      'o1',
+      'o1-mini',
+      'o3',
+      'o3-mini',
+      'o4-mini',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-pro',
+      'gemini-1.5-flash',
+      'gemini-1.0-flash',
+      'claude-opus-4',
+      'claude-sonnet-4',
+      'claude-3.7-sonnet',
+      'claude-3.5-sonnet-v2',
+      'claude-3.5-haiku',
+    ];
+
+console.log(
+  '📋 AI Provider: Available models:',
+  availableModels.length,
+  'models',
+);

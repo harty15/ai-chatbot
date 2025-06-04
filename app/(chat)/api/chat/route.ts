@@ -27,8 +27,9 @@ import { createDocument } from '@/lib/ai/tools/create-document';
 import { updateDocument } from '@/lib/ai/tools/update-document';
 import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
 import { getWeather } from '@/lib/ai/tools/get-weather';
-import { isProductionEnvironment } from '@/lib/constants';
-import { myProvider } from '@/lib/ai/providers';
+import { isProductionEnvironment, isTestEnvironment } from '@/lib/constants';
+import { myProvider, availableModels } from '@/lib/ai/providers';
+import { isReasoningModel, hasBuiltInReasoning } from '@/lib/ai/models';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
@@ -49,24 +50,36 @@ export const maxDuration = 60;
 let globalStreamContext: ResumableStreamContext | null = null;
 
 function getStreamContext() {
+  console.log('🔄 Stream Context: Attempting to get stream context...');
+
   if (!globalStreamContext) {
+    console.log('🔄 Stream Context: Creating new resumable stream context...');
     try {
       globalStreamContext = createResumableStreamContext({
         waitUntil: after,
       });
+      console.log(
+        '✅ Stream Context: Successfully created resumable stream context',
+      );
     } catch (error: any) {
+      console.error(
+        '❌ Stream Context: Failed to create resumable stream context:',
+        error,
+      );
       if (
         error.message.includes('REDIS_URL') ||
         error.code === 'ERR_INVALID_URL' ||
         error.message.includes('Invalid URL')
       ) {
         console.log(
-          ' > Resumable streams are disabled due to invalid or missing REDIS_URL',
+          '⚠️ Resumable streams are disabled due to invalid or missing REDIS_URL',
         );
       } else {
-        console.error(error);
+        console.error('❌ Stream Context: Unexpected error:', error);
       }
     }
+  } else {
+    console.log('✅ Stream Context: Using existing stream context');
   }
 
   return globalStreamContext;
@@ -74,6 +87,17 @@ function getStreamContext() {
 
 export async function POST(request: Request) {
   console.log('🔄 Chat API: Starting request processing...');
+
+  // Environment checks for debugging
+  console.log('🔧 Chat API: Environment check:', {
+    nodeEnv: process.env.NODE_ENV,
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+    hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    hasGoogleKey: !!process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    hasRedisUrl: !!process.env.REDIS_URL,
+    isProduction: isProductionEnvironment,
+    isTest: isTestEnvironment,
+  });
 
   let requestBody: PostRequestBody;
 
@@ -103,11 +127,19 @@ export async function POST(request: Request) {
     const { id, message, selectedChatModel, selectedVisibilityType } =
       requestBody;
 
+    console.log('🤖 Chat API: Processing with model:', selectedChatModel);
+
     const session = await auth();
 
     if (!session?.user) {
+      console.error('❌ Chat API: No authenticated session found');
       return new ChatSDKError('unauthorized:chat').toResponse();
     }
+
+    console.log('✅ Chat API: User authenticated:', {
+      userId: session.user.id,
+      userType: session.user.type,
+    });
 
     const userType: UserType = session.user.type;
 
@@ -116,13 +148,21 @@ export async function POST(request: Request) {
       differenceInHours: 24,
     });
 
+    console.log('📊 Chat API: Message count check:', {
+      messageCount,
+      maxAllowed: entitlementsByUserType[userType].maxMessagesPerDay,
+      userType,
+    });
+
     if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
+      console.error('❌ Chat API: Rate limit exceeded');
       return new ChatSDKError('rate_limit:chat').toResponse();
     }
 
     const chat = await getChatById({ id });
 
     if (!chat) {
+      console.log('🆕 Chat API: Creating new chat...');
       const title = await generateTitleFromUserMessage({
         message,
       });
@@ -133,19 +173,32 @@ export async function POST(request: Request) {
         title,
         visibility: selectedVisibilityType,
       });
+      console.log('✅ Chat API: New chat created with title:', title);
     } else {
+      console.log('✅ Chat API: Using existing chat:', {
+        chatId: id,
+        title: chat.title,
+      });
+
       if (chat.userId !== session.user.id) {
+        console.error('❌ Chat API: User does not own this chat');
         return new ChatSDKError('forbidden:chat').toResponse();
       }
     }
 
     const previousMessages = await getMessagesByChatId({ id });
+    console.log(
+      '📨 Chat API: Previous messages loaded:',
+      previousMessages.length,
+    );
 
     const messages = appendClientMessage({
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
       messages: previousMessages,
       message,
     });
+
+    console.log('📨 Chat API: Total messages for context:', messages.length);
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -155,6 +208,12 @@ export async function POST(request: Request) {
       city,
       country,
     };
+
+    console.log('🌍 Chat API: Location context:', {
+      city,
+      country,
+      hasCoordinates: !!(longitude && latitude),
+    });
 
     await saveMessages({
       messages: [
@@ -169,6 +228,8 @@ export async function POST(request: Request) {
       ],
     });
 
+    console.log('✅ Chat API: User message saved to database');
+
     // Get user memories and settings for context
     const [userMemories, userMemorySettings] = await Promise.all([
       getMemoriesByUserId({ userId: session.user.id, limit: 50 }), // Recent memories for context
@@ -182,6 +243,12 @@ export async function POST(request: Request) {
             .map((memory) => `[${memory.category}] ${memory.content}`)
             .join('\n- ')
         : undefined;
+
+    console.log('🧠 Chat API: Memory context:', {
+      memoriesCount: userMemories.length,
+      memoryCollectionEnabled:
+        userMemorySettings?.memoryCollectionEnabled !== false,
+    });
 
     // Get file context from attachments and prepare for AI model
     let attachedFilesContext: string | undefined;
@@ -265,7 +332,7 @@ export async function POST(request: Request) {
         after(() =>
           processMemoryForUser(session.user.id, messageText, message.id).catch(
             (error) =>
-              console.error('Background memory processing failed:', error),
+              console.error('❌ Background memory processing failed:', error),
           ),
         );
       }
@@ -274,10 +341,46 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
+    console.log('🆔 Chat API: Stream ID created:', streamId);
+
     // All files are now parsed as text content, so no need for provider switching
+
+    // Verify provider model exists
+    console.log('🔍 Chat API: Checking model availability...', {
+      requestedModel: selectedChatModel,
+      isModelAvailable: availableModels.includes(selectedChatModel),
+      availableModelsCount: availableModels.length,
+    });
+
+    if (!availableModels.includes(selectedChatModel)) {
+      console.error(
+        '❌ Chat API: Requested model not in available models list:',
+        {
+          requestedModel: selectedChatModel,
+          availableModels: availableModels.slice(0, 10), // Show first 10 for brevity
+        },
+      );
+    }
+
+    try {
+      const languageModel = myProvider.languageModel(selectedChatModel);
+      console.log(
+        '✅ Chat API: Language model acquired successfully for:',
+        selectedChatModel,
+      );
+    } catch (error) {
+      console.error(
+        '❌ Chat API: Failed to get language model for:',
+        selectedChatModel,
+        error,
+      );
+      console.error('❌ Chat API: Available models:', availableModels);
+      throw error;
+    }
 
     // Log context for debugging
     console.log('🤖 AI Context Summary:');
+    console.log(`   - Model: ${selectedChatModel}`);
     console.log(`   - Memories: ${memoriesContext ? 'Yes' : 'No'}`);
     console.log(
       `   - Files: ${fileAttachments.length} attachments, ${attachedFilesContext ? 'Yes' : 'No'} context`,
@@ -285,24 +388,38 @@ export async function POST(request: Request) {
     console.log(
       `   - File context length: ${attachedFilesContext?.length || 0} chars`,
     );
+    console.log(`   - Messages in context: ${messages.length}`);
+    console.log(`   - Max steps: 5`);
+    console.log(
+      `   - Tools enabled: ${!isReasoningModel(selectedChatModel) ? 'Yes' : 'No (reasoning model)'}`,
+    );
+
+    if (hasBuiltInReasoning(selectedChatModel)) {
+      console.log('   - Reasoning summaries: Enabled (detailed)');
+      console.log('   - Reasoning effort: Medium');
+    }
+
+    console.log('🚀 Chat API: Creating data stream...');
 
     const stream = createDataStream({
       execute: (dataStream) => {
-        const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({
-            selectedChatModel,
-            requestHints,
-            memories: memoriesContext,
-            attachedFiles: attachedFilesContext,
-          }),
-          messages,
-          ...(fileAttachments.length > 0 && {
-            experimental_attachments: fileAttachments,
-          }),
-          maxSteps: 5,
-          experimental_activeTools:
-            selectedChatModel === 'chat-model-reasoning'
+        console.log('🔄 Stream Execute: Starting streamText...');
+
+        try {
+          const result = streamText({
+            model: myProvider.languageModel(selectedChatModel),
+            system: systemPrompt({
+              selectedChatModel,
+              requestHints,
+              memories: memoriesContext,
+              attachedFiles: attachedFilesContext,
+            }),
+            messages,
+            ...(fileAttachments.length > 0 && {
+              experimental_attachments: fileAttachments,
+            }),
+            maxSteps: 5,
+            experimental_activeTools: isReasoningModel(selectedChatModel)
               ? []
               : [
                   'getWeather',
@@ -310,95 +427,152 @@ export async function POST(request: Request) {
                   'updateDocument',
                   'requestSuggestions',
                 ],
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
+            experimental_transform: smoothStream({ chunking: 'word' }),
+            experimental_generateMessageId: generateUUID,
+            // Add reasoning configuration for o3 models
+            ...(hasBuiltInReasoning(selectedChatModel) && {
+              providerOptions: {
+                openai: {
+                  reasoningSummary: 'detailed', // Enable detailed reasoning summaries
+                  reasoningEffort: 'medium', // Balanced reasoning effort
+                },
+              },
             }),
-          },
-          onFinish: async ({ response }) => {
-            if (session.user?.id) {
-              try {
-                const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter(
-                    (message) => message.role === 'assistant',
-                  ),
-                });
-
-                if (!assistantId) {
-                  throw new Error('No assistant message found!');
-                }
-
-                const [, assistantMessage] = appendResponseMessages({
-                  messages: [message],
-                  responseMessages: response.messages,
-                });
-
-                await saveMessages({
-                  messages: [
-                    {
-                      id: assistantId,
-                      chatId: id,
-                      role: assistantMessage.role,
-                      parts: assistantMessage.parts,
-                      attachments:
-                        assistantMessage.experimental_attachments ?? [],
-                      createdAt: new Date(),
-                    },
-                  ],
-                });
-              } catch (_) {
-                console.error('Failed to save chat');
-              }
-            }
-          },
-          experimental_telemetry: AISDKExporter.getSettings({
-            runName: `chat-${selectedChatModel}`,
-            metadata: {
-              userId: session.user.id,
-              chatId: id,
-              userType: session.user.type,
-              model: selectedChatModel,
-              hasAttachments: fileAttachments.length > 0,
-              attachmentCount: fileAttachments.length,
-              attachmentFiles: fileAttachments
-                .map((att) => att.name)
-                .join(', '),
-              hasFileContext: !!attachedFilesContext,
-              fileContextLength: attachedFilesContext?.length || 0,
+            tools: {
+              getWeather,
+              createDocument: createDocument({ session, dataStream }),
+              updateDocument: updateDocument({ session, dataStream }),
+              requestSuggestions: requestSuggestions({
+                session,
+                dataStream,
+              }),
             },
-          }),
-        });
+            onFinish: async ({ response }) => {
+              console.log('✅ Stream Execute: onFinish called');
+              console.log('📊 Stream Execute: Response summary:', {
+                messageCount: response.messages.length,
+              });
 
-        result.consumeStream();
+              if (session.user?.id) {
+                try {
+                  const assistantId = getTrailingMessageId({
+                    messages: response.messages.filter(
+                      (message) => message.role === 'assistant',
+                    ),
+                  });
 
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
+                  if (!assistantId) {
+                    console.error(
+                      '❌ Stream Execute: No assistant message found!',
+                    );
+                    throw new Error('No assistant message found!');
+                  }
+
+                  console.log(
+                    '💾 Stream Execute: Saving assistant message with ID:',
+                    assistantId,
+                  );
+
+                  const [, assistantMessage] = appendResponseMessages({
+                    messages: [message],
+                    responseMessages: response.messages,
+                  });
+
+                  await saveMessages({
+                    messages: [
+                      {
+                        id: assistantId,
+                        chatId: id,
+                        role: assistantMessage.role,
+                        parts: assistantMessage.parts,
+                        attachments:
+                          assistantMessage.experimental_attachments ?? [],
+                        createdAt: new Date(),
+                      },
+                    ],
+                  });
+
+                  console.log(
+                    '✅ Stream Execute: Assistant message saved successfully',
+                  );
+                } catch (error) {
+                  console.error(
+                    '❌ Stream Execute: Failed to save chat:',
+                    error,
+                  );
+                }
+              }
+            },
+            experimental_telemetry: AISDKExporter.getSettings({
+              runName: `chat-${selectedChatModel}`,
+              metadata: {
+                userId: session.user.id,
+                chatId: id,
+                userType: session.user.type,
+                model: selectedChatModel,
+                hasAttachments: fileAttachments.length > 0,
+                attachmentCount: fileAttachments.length,
+                attachmentFiles: fileAttachments
+                  .map((att) => att.name)
+                  .join(', '),
+                hasFileContext: !!attachedFilesContext,
+                fileContextLength: attachedFilesContext?.length || 0,
+              },
+            }),
+          });
+
+          console.log('✅ Stream Execute: streamText result created');
+
+          result.consumeStream();
+          console.log('✅ Stream Execute: consumeStream() called');
+
+          result.mergeIntoDataStream(dataStream, {
+            sendReasoning: true,
+          });
+          console.log('✅ Stream Execute: mergeIntoDataStream() called');
+        } catch (error) {
+          console.error('❌ Stream Execute: Error in streamText:', error);
+          throw error;
+        }
       },
-      onError: () => {
+      onError: (error) => {
+        console.error('❌ Data Stream: onError triggered:', error);
         return 'Oops, an error occurred!';
       },
     });
 
+    console.log('✅ Chat API: Data stream created successfully');
+
     const streamContext = getStreamContext();
 
     if (streamContext) {
-      return new Response(
-        await streamContext.resumableStream(streamId, () => stream),
-      );
+      console.log('🔄 Chat API: Using resumable stream...');
+      try {
+        const resumableStreamResponse = await streamContext.resumableStream(
+          streamId,
+          () => stream,
+        );
+        console.log('✅ Chat API: Resumable stream created successfully');
+        return new Response(resumableStreamResponse);
+      } catch (error) {
+        console.error('❌ Chat API: Failed to create resumable stream:', error);
+        console.log('🔄 Chat API: Falling back to regular stream...');
+        return new Response(stream);
+      }
     } else {
+      console.log(
+        '🔄 Chat API: Using regular stream (no resumable context)...',
+      );
       return new Response(stream);
     }
   } catch (error) {
+    console.error('❌ Chat API: Caught error in main try block:', error);
     if (error instanceof ChatSDKError) {
+      console.error('❌ Chat API: ChatSDKError:', error.message);
       return error.toResponse();
     }
+    console.error('❌ Chat API: Unexpected error:', error);
+    throw error;
   }
 }
 

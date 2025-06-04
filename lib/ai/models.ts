@@ -63,12 +63,6 @@ export const chatModels: Array<ChatModel> = [
     description: 'Great at coding and visual reasoning',
     provider: 'openai',
   },
-  {
-    id: 'o4-mini-high',
-    name: 'o4-mini-high',
-    description: 'High-performance coding model',
-    provider: 'openai',
-  },
 
   // Gemini (Google DeepMind) Models
   {
@@ -177,3 +171,36 @@ export const legacyModels: Array<ChatModel> = [
 
 // Combined models including legacy ones
 export const allChatModels = [...chatModels, ...legacyModels];
+
+// Helper function to check if a model is a reasoning model
+export const isReasoningModel = (modelId: string): boolean => {
+  const reasoningModels = [
+    'chat-model-reasoning', // Legacy reasoning model
+    'o1', // OpenAI o1 series (with middleware)
+    'o1-mini',
+    'o3', // OpenAI o3 series (built-in reasoning)
+    'o3-mini',
+    'o4-mini', // OpenAI o4 series
+  ];
+  return reasoningModels.includes(modelId);
+};
+
+// Helper function to check if a model uses middleware for reasoning extraction
+export const usesReasoningMiddleware = (modelId: string): boolean => {
+  const middlewareModels = [
+    'chat-model-reasoning', // Legacy reasoning model
+    'o1', // o1 series use extractReasoningMiddleware
+    'o1-mini',
+  ];
+  return middlewareModels.includes(modelId);
+};
+
+// Helper function to check if a model has built-in reasoning
+export const hasBuiltInReasoning = (modelId: string): boolean => {
+  const builtInReasoningModels = [
+    'o3', // o3 series have native reasoning display
+    'o3-mini',
+    'o4-mini', // o4 series (assuming similar to o3)
+  ];
+  return builtInReasoningModels.includes(modelId);
+};
