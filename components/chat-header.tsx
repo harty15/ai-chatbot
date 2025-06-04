@@ -7,6 +7,7 @@ import { useWindowSize } from 'usehooks-ts';
 import { ModelSelector } from '@/components/model-selector';
 import { ShareButton } from '@/components/share-button';
 import { SidebarToggle } from '@/components/sidebar-toggle';
+import { MCPSettingsMenu } from '@/components/mcp-settings-menu';
 import { Button } from '@/components/ui/button';
 import { PlusIcon, VercelIcon } from './icons';
 import { useSidebar } from './ui/sidebar';
@@ -65,6 +66,10 @@ function PureChatHeader({
           className="order-1 md:order-2"
           onModelChange={onModelChange}
         />
+      )}
+
+      {!isReadonly && (
+        <MCPSettingsMenu userId={session.user?.id || ''} disabled={false} />
       )}
 
       {!isReadonly && (

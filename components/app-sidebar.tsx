@@ -2,7 +2,7 @@
 
 import type { User } from 'next-auth';
 import { useRouter } from 'next/navigation';
-import { Brain } from 'lucide-react';
+import { Brain, Settings } from 'lucide-react';
 
 import { PlusIcon } from '@/components/icons';
 import { SidebarHistory } from '@/components/sidebar-history';
@@ -70,6 +70,26 @@ export function AppSidebar({ user }: { user: User | undefined }) {
               >
                 <Brain className="h-4 w-4" />
                 Memory
+              </Link>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <Link
+                href="/mcps"
+                onClick={() => setOpenMobile(false)}
+                className="flex items-center gap-3 px-2 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                MCPs
+              </Link>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <Link
+                href="/settings"
+                onClick={() => setOpenMobile(false)}
+                className="flex items-center gap-3 px-2 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                Settings
               </Link>
             </SidebarMenuItem>
           </SidebarMenu>

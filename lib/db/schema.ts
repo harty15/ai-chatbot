@@ -211,3 +211,53 @@ export const uploadedFile = pgTable('UploadedFile', {
 });
 
 export type UploadedFile = InferSelectModel<typeof uploadedFile>;
+
+export const mcpServer = pgTable('MCPServer', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  name: varchar('name', { length: 100 }).notNull(),
+  description: text('description'),
+  iconUrl: text('iconUrl'),
+  transportType: varchar('transportType', {
+    enum: ['sse', 'stdio_proxy'],
+  }).notNull(),
+  transportConfig: json('transportConfig').notNull(),
+  schemaConfig: json('schemaConfig'),
+  createdByUserId: uuid('createdByUserId').references(() => user.id),
+  isPublic: boolean('isPublic').notNull().default(false),
+  isCurated: boolean('isCurated').notNull().default(false),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type MCPServer = InferSelectModel<typeof mcpServer>;
+
+export const userMCPConfig = pgTable('UserMCPConfig', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  userId: uuid('userId')
+    .notNull()
+    .references(() => user.id),
+  mcpServerId: uuid('mcpServerId')
+    .notNull()
+    .references(() => mcpServer.id),
+  enabled: boolean('enabled').notNull().default(false),
+  encryptedCredentials: text('encryptedCredentials'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type UserMCPConfig = InferSelectModel<typeof userMCPConfig>;
+
+export const userMCPToolConfig = pgTable('UserMCPToolConfig', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  userId: uuid('userId')
+    .notNull()
+    .references(() => user.id),
+  mcpServerId: uuid('mcpServerId')
+    .notNull()
+    .references(() => mcpServer.id),
+  toolName: varchar('toolName', { length: 100 }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+});
+
+export type UserMCPToolConfig = InferSelectModel<typeof userMCPToolConfig>;

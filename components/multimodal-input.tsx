@@ -27,6 +27,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown } from 'lucide-react';
 import { useScrollToBottom } from '@/hooks/use-scroll-to-bottom';
 import type { VisibilityType } from './visibility-selector';
+import { MCPSettingsMenu } from './mcp-settings-menu';
+import type { Session } from 'next-auth';
 
 function PureMultimodalInput({
   chatId,
@@ -42,6 +44,7 @@ function PureMultimodalInput({
   handleSubmit,
   className,
   selectedVisibilityType,
+  session,
 }: {
   chatId: string;
   input: UseChatHelpers['input'];
@@ -56,6 +59,7 @@ function PureMultimodalInput({
   handleSubmit: UseChatHelpers['handleSubmit'];
   className?: string;
   selectedVisibilityType: VisibilityType;
+  session?: Session;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -361,8 +365,14 @@ function PureMultimodalInput({
         }}
       />
 
-      <div className="absolute bottom-0 p-2 w-fit flex flex-row justify-start">
+      <div className="absolute bottom-0 p-2 w-fit flex flex-row justify-start gap-1">
         <AttachmentsButton fileInputRef={fileInputRef} status={status} />
+        {session?.user?.id && (
+          <MCPSettingsMenu
+            userId={session.user.id}
+            disabled={status !== 'ready'}
+          />
+        )}
       </div>
 
       <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
@@ -387,6 +397,8 @@ export const MultimodalInput = memo(
     if (prevProps.status !== nextProps.status) return false;
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
     if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType)
+      return false;
+    if (prevProps.session?.user?.id !== nextProps.session?.user?.id)
       return false;
 
     return true;
