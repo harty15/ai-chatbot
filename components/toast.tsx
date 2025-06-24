@@ -5,9 +5,10 @@ import { toast as sonnerToast } from 'sonner';
 import { CheckCircleFillIcon, WarningIcon } from './icons';
 import { cn } from '@/lib/utils';
 
-const iconsByType: Record<'success' | 'error', ReactNode> = {
+const iconsByType: Record<'success' | 'error' | 'warning', ReactNode> = {
   success: <CheckCircleFillIcon />,
   error: <WarningIcon />,
+  warning: <WarningIcon />,
 };
 
 export function toast(props: Omit<ToastProps, 'id'>) {
@@ -52,7 +53,7 @@ function Toast(props: ToastProps) {
         <div
           data-type={type}
           className={cn(
-            'data-[type=error]:text-red-600 data-[type=success]:text-green-600',
+            'data-[type=error]:text-red-600 data-[type=success]:text-green-600 data-[type=warning]:text-yellow-600',
             { 'pt-1': multiLine },
           )}
         >
@@ -68,6 +69,6 @@ function Toast(props: ToastProps) {
 
 interface ToastProps {
   id: string | number;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'warning';
   description: string;
 }

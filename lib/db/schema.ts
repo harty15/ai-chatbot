@@ -211,3 +211,89 @@ export const uploadedFile = pgTable('UploadedFile', {
 });
 
 export type UploadedFile = InferSelectModel<typeof uploadedFile>;
+
+export const mcpServer = pgTable('McpServer', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  userId: uuid('userId')
+    .notNull()
+    .references(() => user.id),
+  name: varchar('name', { length: 100 }).notNull(),
+  description: text('description'),
+  transportType: varchar('transportType', { enum: ['stdio', 'sse'] })
+    .notNull()
+    .default('stdio'),
+  // For stdio transport
+  command: text('command'),
+  args: json('args').$type<string[]>(),
+  env: json('env').$type<Record<string, string>>(),
+  // For SSE transport
+  url: text('url'),
+  // Server configuration
+  maxRetries: integer('maxRetries').notNull().default(3),
+  retryDelay: integer('retryDelay').notNull().default(1000), // milliseconds
+  timeout: integer('timeout').notNull().default(30000), // milliseconds
+  // Status and metadata
+  isEnabled: boolean('isEnabled').notNull().default(true),
+  connectionStatus: varchar('connectionStatus', {
+    enum: ['disconnected', 'connecting', 'connected', 'error'],
+  })
+    .notNull()
+    .default('disconnected'),
+  lastConnected: timestamp('lastConnected'),
+  lastError: text('lastError'),
+  serverInfo: json('serverInfo').$type<{
+    name?: string;
+    version?: string;
+    protocolVersion?: string;
+  }>(),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type McpServer = InferSelectModel<typeof mcpServer>;
+
+export const mcpTool = pgTable('McpTool', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  serverId: uuid('serverId')
+    .notNull()
+    .references(() => mcpServer.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  description: text('description'),
+  inputSchema: json('inputSchema').$type<Record<string, any>>(),
+  outputSchema: json('outputSchema').$type<Record<string, any>>(),
+  // Tool metadata
+  isEnabled: boolean('isEnabled').notNull().default(true),
+  lastUsed: timestamp('lastUsed'),
+  usageCount: integer('usageCount').notNull().default(0),
+  averageExecutionTime: integer('averageExecutionTime'), // milliseconds
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type McpTool = InferSelectModel<typeof mcpTool>;
+
+export const mcpToolExecution = pgTable('McpToolExecution', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  toolId: uuid('toolId')
+    .notNull()
+    .references(() => mcpTool.id, { onDelete: 'cascade' }),
+  chatId: uuid('chatId')
+    .notNull()
+    .references(() => chat.id),
+  messageId: uuid('messageId')
+    .notNull()
+    .references(() => message.id),
+  // Execution details
+  input: json('input').$type<Record<string, any>>(),
+  output: json('output').$type<any>(),
+  executionTime: integer('executionTime'), // milliseconds
+  status: varchar('status', {
+    enum: ['pending', 'success', 'error', 'timeout'],
+  })
+    .notNull()
+    .default('pending'),
+  error: text('error'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+});
+
+export type McpToolExecution = InferSelectModel<typeof mcpToolExecution>;

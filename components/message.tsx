@@ -153,6 +153,49 @@ const PurePreviewMessage = ({
                 }
               }
 
+              // Handle URL sources (AI SDK 4.2+ feature)
+              if (type === 'source') {
+                return (
+                  <div key={key} className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                    <span className="text-blue-600 font-medium">Source:</span>
+                    <a 
+                      href={part.source.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-700 hover:text-blue-900 underline truncate"
+                    >
+                      {part.source.title || new URL(part.source.url).hostname}
+                    </a>
+                  </div>
+                );
+              }
+
+              // Handle file generation (AI SDK 4.2+ feature) 
+              if (type === 'file') {
+                if (part.mimeType?.startsWith('image/')) {
+                  return (
+                    <div key={key} className="flex flex-col gap-2">
+                      <div className="text-sm text-gray-600">Generated Image:</div>
+                      <img
+                        src={`data:${part.mimeType};base64,${part.data}`}
+                        alt="Generated image"
+                        className="max-w-full h-auto rounded-lg shadow-sm"
+                      />
+                    </div>
+                  );
+                }
+                
+                // Handle other file types
+                return (
+                  <div key={key} className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg">
+                    <div className="text-sm">
+                      <div className="font-medium">Generated File</div>
+                      <div className="text-gray-600">Type: {part.mimeType}</div>
+                    </div>
+                  </div>
+                );
+              }
+
               if (type === 'tool-invocation') {
                 const { toolInvocation } = part;
                 const { toolName, toolCallId, state } = toolInvocation;
@@ -183,7 +226,18 @@ const PurePreviewMessage = ({
                           args={args}
                           isReadonly={isReadonly}
                         />
-                      ) : null}
+                      ) : (
+                        // Enhanced MCP tool display
+                        <div className="p-3 bg-gray-50 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                            <span className="text-sm font-medium">Executing {toolName}</span>
+                          </div>
+                          <div className="text-xs text-gray-600 font-mono bg-gray-100 p-2 rounded">
+                            {JSON.stringify(args, null, 2)}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -213,7 +267,21 @@ const PurePreviewMessage = ({
                           isReadonly={isReadonly}
                         />
                       ) : (
-                        <pre>{JSON.stringify(result, null, 2)}</pre>
+                        // Enhanced MCP tool result display
+                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-green-800">
+                              {toolName} completed
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-700">
+                            {typeof result === 'string' 
+                              ? result 
+                              : result?.content?.[0]?.text || JSON.stringify(result, null, 2)
+                            }
+                          </div>
+                        </div>
                       )}
                     </div>
                   );

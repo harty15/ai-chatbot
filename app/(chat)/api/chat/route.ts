@@ -31,6 +31,8 @@ import { isProductionEnvironment, isTestEnvironment } from '@/lib/constants';
 import { myProvider, availableModels } from '@/lib/ai/providers';
 import { isReasoningModel, hasBuiltInReasoning } from '@/lib/ai/models';
 import { entitlementsByUserType } from '@/lib/ai/entitlements';
+import { mcpClientManager } from '@/lib/ai/mcp-client';
+import { getEnabledMcpServersByUserId } from '@/lib/db/queries';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
 import {
@@ -407,6 +409,76 @@ export async function POST(request: Request) {
       console.log('   - Reasoning effort: Medium');
     }
 
+    // Get MCP tools for the user
+    let mcpTools: Record<string, any> = {};
+    let mcpToolNames: string[] = [];
+    
+    if (!isReasoningModel(selectedChatModel)) {
+      try {
+        console.log('🔧 Chat API: Loading MCP tools...');
+        
+        // Get enabled MCP servers for the user
+        const enabledServers = await getEnabledMcpServersByUserId({
+          userId: session.user.id,
+        });
+
+        // Initialize servers in client manager if needed
+        for (const server of enabledServers) {
+          const client = mcpClientManager.getClient(server.id);
+          if (!client) {
+            try {
+              const transport = server.transportType === 'stdio' 
+                ? {
+                    type: 'stdio' as const,
+                    command: server.command!,
+                    args: server.args || undefined,
+                    env: server.env || undefined,
+                  }
+                : {
+                    type: 'sse' as const,
+                    url: server.url!,
+                  };
+
+              await mcpClientManager.addServer(server.id, {
+                transport,
+                timeout: server.timeout,
+                maxRetries: server.maxRetries,
+                retryDelay: server.retryDelay,
+              });
+
+              const newClient = mcpClientManager.getClient(server.id);
+              if (newClient && !newClient.isConnected()) {
+                // Attempt to connect in background, don't block chat
+                newClient.connect().catch((error) => {
+                  console.warn(`Failed to connect to MCP server ${server.id}:`, error);
+                });
+              }
+            } catch (error) {
+              console.warn(`Failed to initialize MCP server ${server.id}:`, error);
+            }
+          }
+        }
+
+        // Get all MCP tools from connected servers
+        mcpTools = await mcpClientManager.getAllTools();
+        mcpToolNames = Object.keys(mcpTools);
+        
+        console.log(`✅ Chat API: Loaded ${mcpToolNames.length} MCP tools from ${enabledServers.length} servers`);
+        
+        // Log MCP tools summary
+        console.log(`   - MCP tools: ${mcpToolNames.length} available`);
+        if (mcpToolNames.length > 0) {
+          console.log(`   - MCP tool names: ${mcpToolNames.join(', ')}`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Chat API: Failed to load MCP tools:', error);
+        // Continue without MCP tools - don't fail the chat
+        console.log(`   - MCP tools: 0 available (failed to load)`);
+      }
+    } else {
+      console.log(`   - MCP tools: 0 available (reasoning model)`);
+    }
+
     console.log('🚀 Chat API: Creating data stream...');
 
     const stream = createDataStream({
@@ -434,6 +506,7 @@ export async function POST(request: Request) {
                   'createDocument',
                   'updateDocument',
                   'requestSuggestions',
+                  ...mcpToolNames,
                 ],
             experimental_transform: smoothStream({ chunking: 'word' }),
             experimental_generateMessageId: generateUUID,
@@ -454,6 +527,7 @@ export async function POST(request: Request) {
                 session,
                 dataStream,
               }),
+              ...mcpTools,
             },
             onFinish: async ({ response }) => {
               console.log('✅ Stream Execute: onFinish called');
@@ -536,6 +610,7 @@ export async function POST(request: Request) {
 
           result.mergeIntoDataStream(dataStream, {
             sendReasoning: true,
+            sendSources: true,
           });
           console.log('✅ Stream Execute: mergeIntoDataStream() called');
         } catch (error) {

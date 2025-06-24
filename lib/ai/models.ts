@@ -68,19 +68,19 @@ export const chatModels: Array<ChatModel> = [
   {
     id: 'gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
-    description: 'Most capable Gemini model',
+    description: 'Most capable Gemini model with search',
     provider: 'google',
   },
   {
     id: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
-    description: 'Fast and efficient processing',
+    description: 'Fast processing with search grounding',
     provider: 'google',
   },
   {
     id: 'gemini-2.0-flash',
     name: 'Gemini 2.0 Flash',
-    description: 'Balanced speed and performance',
+    description: 'Can generate images and search sources',
     provider: 'google',
   },
   {
@@ -92,13 +92,13 @@ export const chatModels: Array<ChatModel> = [
   {
     id: 'gemini-1.5-pro',
     name: 'Gemini 1.5 Pro',
-    description: 'Advanced multimodal capabilities',
+    description: 'Advanced multimodal with search',
     provider: 'google',
   },
   {
     id: 'gemini-1.5-flash',
     name: 'Gemini 1.5 Flash',
-    description: 'Quick responses with quality',
+    description: 'Quick responses with search sources',
     provider: 'google',
   },
 

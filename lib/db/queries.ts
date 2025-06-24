@@ -30,6 +30,12 @@ import {
   memory,
   type Memory,
   uploadedFile,
+  mcpServer,
+  mcpTool,
+  mcpToolExecution,
+  type McpServer,
+  type McpTool,
+  type McpToolExecution,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import { generateUUID } from '../utils';
@@ -894,6 +900,621 @@ export async function getUploadedFilesByUrls({
     throw new ChatSDKError(
       'bad_request:database',
       'Failed to get uploaded files by URLs',
+    );
+  }
+}
+
+// MCP Server Management Functions
+
+export async function createMcpServer({
+  userId,
+  name,
+  description,
+  transportType,
+  command,
+  args,
+  env,
+  url,
+  maxRetries = 3,
+  retryDelay = 1000,
+  timeout = 30000,
+  isEnabled = true,
+}: {
+  userId: string;
+  name: string;
+  description?: string;
+  transportType: 'stdio' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  maxRetries?: number;
+  retryDelay?: number;
+  timeout?: number;
+  isEnabled?: boolean;
+}) {
+  try {
+    const [server] = await db
+      .insert(mcpServer)
+      .values({
+        userId,
+        name,
+        description,
+        transportType,
+        command,
+        args,
+        env,
+        url,
+        maxRetries,
+        retryDelay,
+        timeout,
+        isEnabled,
+      })
+      .returning();
+    return server;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to create MCP server',
+    );
+  }
+}
+
+export async function getMcpServersByUserId({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(mcpServer)
+      .where(eq(mcpServer.userId, userId))
+      .orderBy(desc(mcpServer.createdAt));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP servers',
+    );
+  }
+}
+
+export async function getMcpServerById({
+  id,
+  userId,
+}: {
+  id: string;
+  userId: string;
+}) {
+  try {
+    const [server] = await db
+      .select()
+      .from(mcpServer)
+      .where(and(eq(mcpServer.id, id), eq(mcpServer.userId, userId)));
+    return server;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP server',
+    );
+  }
+}
+
+export async function updateMcpServer({
+  id,
+  userId,
+  name,
+  description,
+  transportType,
+  command,
+  args,
+  env,
+  url,
+  maxRetries,
+  retryDelay,
+  timeout,
+  isEnabled,
+  connectionStatus,
+  lastConnected,
+  lastError,
+  serverInfo,
+}: {
+  id: string;
+  userId: string;
+  name?: string;
+  description?: string;
+  transportType?: 'stdio' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  maxRetries?: number;
+  retryDelay?: number;
+  timeout?: number;
+  isEnabled?: boolean;
+  connectionStatus?: 'disconnected' | 'connecting' | 'connected' | 'error';
+  lastConnected?: Date;
+  lastError?: string;
+  serverInfo?: { name?: string; version?: string; protocolVersion?: string };
+}) {
+  try {
+    const [server] = await db
+      .update(mcpServer)
+      .set({
+        name,
+        description,
+        transportType,
+        command,
+        args,
+        env,
+        url,
+        maxRetries,
+        retryDelay,
+        timeout,
+        isEnabled,
+        connectionStatus,
+        lastConnected,
+        lastError,
+        serverInfo,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(mcpServer.id, id), eq(mcpServer.userId, userId)))
+      .returning();
+    return server;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update MCP server',
+    );
+  }
+}
+
+export async function deleteMcpServer({
+  id,
+  userId,
+}: {
+  id: string;
+  userId: string;
+}) {
+  try {
+    const [server] = await db
+      .delete(mcpServer)
+      .where(and(eq(mcpServer.id, id), eq(mcpServer.userId, userId)))
+      .returning();
+    return server;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to delete MCP server',
+    );
+  }
+}
+
+export async function getEnabledMcpServersByUserId({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(mcpServer)
+      .where(and(eq(mcpServer.userId, userId), eq(mcpServer.isEnabled, true)))
+      .orderBy(desc(mcpServer.createdAt));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get enabled MCP servers',
+    );
+  }
+}
+
+// MCP Tool Management Functions
+
+export async function createMcpTool({
+  serverId,
+  name,
+  description,
+  inputSchema,
+  outputSchema,
+  isEnabled = true,
+}: {
+  serverId: string;
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, any>;
+  outputSchema?: Record<string, any>;
+  isEnabled?: boolean;
+}) {
+  try {
+    const [tool] = await db
+      .insert(mcpTool)
+      .values({
+        serverId,
+        name,
+        description,
+        inputSchema,
+        outputSchema,
+        isEnabled,
+      })
+      .returning();
+    return tool;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to create MCP tool',
+    );
+  }
+}
+
+export async function getMcpToolsByServerId({
+  serverId,
+}: {
+  serverId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(mcpTool)
+      .where(eq(mcpTool.serverId, serverId))
+      .orderBy(asc(mcpTool.name));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP tools',
+    );
+  }
+}
+
+export async function updateMcpTool({
+  id,
+  name,
+  description,
+  inputSchema,
+  outputSchema,
+  isEnabled,
+  lastUsed,
+  usageCount,
+  averageExecutionTime,
+}: {
+  id: string;
+  name?: string;
+  description?: string;
+  inputSchema?: Record<string, any>;
+  outputSchema?: Record<string, any>;
+  isEnabled?: boolean;
+  lastUsed?: Date;
+  usageCount?: number;
+  averageExecutionTime?: number;
+}) {
+  try {
+    const [tool] = await db
+      .update(mcpTool)
+      .set({
+        name,
+        description,
+        inputSchema,
+        outputSchema,
+        isEnabled,
+        lastUsed,
+        usageCount,
+        averageExecutionTime,
+        updatedAt: new Date(),
+      })
+      .where(eq(mcpTool.id, id))
+      .returning();
+    return tool;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update MCP tool',
+    );
+  }
+}
+
+export async function deleteMcpToolsByServerId({
+  serverId,
+}: {
+  serverId: string;
+}) {
+  try {
+    await db.delete(mcpTool).where(eq(mcpTool.serverId, serverId));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to delete MCP tools',
+    );
+  }
+}
+
+export async function getEnabledMcpToolsByUserId({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    return await db
+      .select({
+        tool: mcpTool,
+        server: mcpServer,
+      })
+      .from(mcpTool)
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(
+        and(
+          eq(mcpServer.userId, userId),
+          eq(mcpServer.isEnabled, true),
+          eq(mcpTool.isEnabled, true),
+        ),
+      )
+      .orderBy(asc(mcpTool.name));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get enabled MCP tools',
+    );
+  }
+}
+
+// MCP Tool Execution Management Functions
+
+export async function createMcpToolExecution({
+  toolId,
+  chatId,
+  messageId,
+  input,
+  output,
+  executionTime,
+  status = 'pending',
+  error,
+}: {
+  toolId: string;
+  chatId: string;
+  messageId: string;
+  input?: Record<string, any>;
+  output?: any;
+  executionTime?: number;
+  status?: 'pending' | 'success' | 'error' | 'timeout';
+  error?: string;
+}) {
+  try {
+    const [execution] = await db
+      .insert(mcpToolExecution)
+      .values({
+        toolId,
+        chatId,
+        messageId,
+        input,
+        output,
+        executionTime,
+        status,
+        error,
+      })
+      .returning();
+    return execution;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to create MCP tool execution',
+    );
+  }
+}
+
+export async function updateMcpToolExecution({
+  id,
+  output,
+  executionTime,
+  status,
+  error,
+}: {
+  id: string;
+  output?: any;
+  executionTime?: number;
+  status: 'pending' | 'success' | 'error' | 'timeout';
+  error?: string;
+}) {
+  try {
+    const [execution] = await db
+      .update(mcpToolExecution)
+      .set({
+        output,
+        executionTime,
+        status,
+        error,
+      })
+      .where(eq(mcpToolExecution.id, id))
+      .returning();
+    return execution;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update MCP tool execution',
+    );
+  }
+}
+
+export async function getMcpToolExecutionsByUserId({
+  userId,
+  limit = 50,
+}: {
+  userId: string;
+  limit?: number;
+}) {
+  try {
+    return await db
+      .select({
+        execution: mcpToolExecution,
+        tool: mcpTool,
+        server: mcpServer,
+      })
+      .from(mcpToolExecution)
+      .innerJoin(mcpTool, eq(mcpToolExecution.toolId, mcpTool.id))
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(eq(mcpServer.userId, userId))
+      .orderBy(desc(mcpToolExecution.createdAt))
+      .limit(limit);
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP tool executions',
+    );
+  }
+}
+
+export async function getMcpDashboardStats({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    const [serverStats] = await db
+      .select({
+        totalServers: count(mcpServer.id),
+      })
+      .from(mcpServer)
+      .where(eq(mcpServer.userId, userId));
+
+    const [connectedServerStats] = await db
+      .select({
+        connectedServers: count(mcpServer.id),
+      })
+      .from(mcpServer)
+      .where(
+        and(
+          eq(mcpServer.userId, userId),
+          eq(mcpServer.connectionStatus, 'connected'),
+        ),
+      );
+
+    const [toolStats] = await db
+      .select({
+        totalTools: count(mcpTool.id),
+      })
+      .from(mcpTool)
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(eq(mcpServer.userId, userId));
+
+    const [enabledToolStats] = await db
+      .select({
+        enabledTools: count(mcpTool.id),
+      })
+      .from(mcpTool)
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(
+        and(
+          eq(mcpServer.userId, userId),
+          eq(mcpTool.isEnabled, true),
+          eq(mcpServer.isEnabled, true),
+        ),
+      );
+
+    const [executionStats] = await db
+      .select({
+        totalExecutions: count(mcpToolExecution.id),
+      })
+      .from(mcpToolExecution)
+      .innerJoin(mcpTool, eq(mcpToolExecution.toolId, mcpTool.id))
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(eq(mcpServer.userId, userId));
+
+    const [successfulExecutionStats] = await db
+      .select({
+        successfulExecutions: count(mcpToolExecution.id),
+      })
+      .from(mcpToolExecution)
+      .innerJoin(mcpTool, eq(mcpToolExecution.toolId, mcpTool.id))
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(
+        and(
+          eq(mcpServer.userId, userId),
+          eq(mcpToolExecution.status, 'success'),
+        ),
+      );
+
+    return {
+      totalServers: serverStats.totalServers || 0,
+      connectedServers: connectedServerStats.connectedServers || 0,
+      totalTools: toolStats.totalTools || 0,
+      enabledTools: enabledToolStats.enabledTools || 0,
+      totalExecutions: executionStats.totalExecutions || 0,
+      successfulExecutions: successfulExecutionStats.successfulExecutions || 0,
+      failedExecutions:
+        (executionStats.totalExecutions || 0) -
+        (successfulExecutionStats.successfulExecutions || 0),
+      averageResponseTime: 0, // This would need a more complex query
+    };
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP dashboard stats',
+    );
+  }
+}
+
+export async function getMcpToolsByUserId({
+  userId,
+}: {
+  userId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(mcpTool)
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(eq(mcpServer.userId, userId))
+      .orderBy(mcpServer.name, mcpTool.name);
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get MCP tools by user ID',
+    );
+  }
+}
+
+export async function updateMcpToolEnabled({
+  toolId,
+  isEnabled,
+  userId,
+}: {
+  toolId: string;
+  isEnabled: boolean;
+  userId: string;
+}) {
+  try {
+    // Verify the tool belongs to the user before updating
+    const [tool] = await db
+      .select()
+      .from(mcpTool)
+      .innerJoin(mcpServer, eq(mcpTool.serverId, mcpServer.id))
+      .where(
+        and(
+          eq(mcpTool.id, toolId),
+          eq(mcpServer.userId, userId)
+        )
+      );
+
+    if (!tool) {
+      throw new ChatSDKError(
+        'not_found',
+        'Tool not found or access denied',
+      );
+    }
+
+    await db
+      .update(mcpTool)
+      .set({ 
+        isEnabled,
+        updatedAt: new Date()
+      })
+      .where(eq(mcpTool.id, toolId));
+
+  } catch (error) {
+    if (error instanceof ChatSDKError) {
+      throw error;
+    }
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update MCP tool enabled status',
     );
   }
 }

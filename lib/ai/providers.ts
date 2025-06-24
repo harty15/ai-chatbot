@@ -62,13 +62,13 @@ export const myProvider = isTestEnvironment
         // o4 series (assuming similar to o3)
         'o4-mini': openai('o4-mini'),
 
-        // Gemini (Google DeepMind) Models
-        'gemini-2.5-pro': google('models/gemini-2.5-pro'),
-        'gemini-2.5-flash': google('models/gemini-2.5-flash'),
-        'gemini-2.0-flash': google('models/gemini-2.0-flash'),
+        // Gemini (Google DeepMind) Models with search grounding
+        'gemini-2.5-pro': google('models/gemini-2.5-pro', { useSearchGrounding: true }),
+        'gemini-2.5-flash': google('models/gemini-2.5-flash', { useSearchGrounding: true }),
+        'gemini-2.0-flash': google('models/gemini-2.0-flash', { useSearchGrounding: true }), // Supports image generation
         'gemini-2.0-flash-lite': google('models/gemini-2.0-flash-lite'),
-        'gemini-1.5-pro': google('models/gemini-1.5-pro'),
-        'gemini-1.5-flash': google('models/gemini-1.5-flash'),
+        'gemini-1.5-pro': google('models/gemini-1.5-pro', { useSearchGrounding: true }),
+        'gemini-1.5-flash': google('models/gemini-1.5-flash', { useSearchGrounding: true }),
         'gemini-1.0-flash': google('models/gemini-1.0-flash'),
 
         // Claude (Anthropic) Models

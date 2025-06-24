@@ -64,6 +64,13 @@
       "when": 1748829379177,
       "tag": "0008_colorful_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1750729590263,
+      "tag": "0009_chubby_absorbing_man",
+      "breakpoints": true
     }
   ]
 }
