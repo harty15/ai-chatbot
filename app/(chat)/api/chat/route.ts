@@ -53,6 +53,12 @@ function getStreamContext() {
   console.log('🔄 Stream Context: Attempting to get stream context...');
 
   if (!globalStreamContext) {
+    // Check if REDIS_URL is available
+    if (!process.env.REDIS_URL) {
+      console.log('⚠️ Stream Context: REDIS_URL not found, skipping resumable streams');
+      return null;
+    }
+
     console.log('🔄 Stream Context: Creating new resumable stream context...');
     try {
       globalStreamContext = createResumableStreamContext({
@@ -77,6 +83,8 @@ function getStreamContext() {
       } else {
         console.error('❌ Stream Context: Unexpected error:', error);
       }
+      // Return null to use regular streaming instead
+      return null;
     }
   } else {
     console.log('✅ Stream Context: Using existing stream context');

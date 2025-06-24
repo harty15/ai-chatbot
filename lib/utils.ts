@@ -23,17 +23,44 @@ export async function fetchWithErrorHandlers(
   input: RequestInfo | URL,
   init?: RequestInit,
 ) {
+  // Log the request for debugging
+  console.log('🌐 fetchWithErrorHandlers: Making request...', {
+    url: input.toString(),
+    method: init?.method || 'GET',
+    hasBody: !!init?.body,
+    bodyType: init?.body ? typeof init.body : 'none',
+    online: typeof navigator !== 'undefined' ? navigator.onLine : 'unknown',
+  });
+
   try {
     const response = await fetch(input, init);
 
+    console.log('🌐 fetchWithErrorHandlers: Response received...', {
+      url: response.url,
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      type: response.type,
+    });
+
     if (!response.ok) {
-      const { code, cause } = await response.json();
-      throw new ChatSDKError(code as ErrorCode, cause);
+      try {
+        const errorData = await response.json();
+        console.error('❌ fetchWithErrorHandlers: Server error response:', errorData);
+        const { code, cause } = errorData;
+        throw new ChatSDKError(code as ErrorCode, cause);
+      } catch (parseError) {
+        console.error('❌ fetchWithErrorHandlers: Failed to parse error response:', parseError);
+        throw new ChatSDKError('bad_request:api', response.statusText);
+      }
     }
 
     return response;
   } catch (error: unknown) {
+    console.error('❌ fetchWithErrorHandlers: Request failed:', error);
+    
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.error('❌ fetchWithErrorHandlers: User is offline');
       throw new ChatSDKError('offline:chat');
     }
 

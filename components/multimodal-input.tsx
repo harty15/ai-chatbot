@@ -110,11 +110,35 @@ function PureMultimodalInput({
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
   const submitForm = useCallback(() => {
+    console.log('🚀 MultimodalInput: Submitting form...', {
+      chatId,
+      inputLength: input.length,
+      attachmentCount: attachments.length,
+      status,
+      inputPreview: input.slice(0, 100) + (input.length > 100 ? '...' : ''),
+    });
+
+    if (status !== 'ready') {
+      console.warn('⚠️ MultimodalInput: Attempted to submit while not ready, status:', status);
+      return;
+    }
+
+    if (!input.trim() && attachments.length === 0) {
+      console.warn('⚠️ MultimodalInput: Attempted to submit empty message');
+      return;
+    }
+
     window.history.replaceState({}, '', `/chat/${chatId}`);
 
-    handleSubmit(undefined, {
-      experimental_attachments: attachments,
-    });
+    try {
+      handleSubmit(undefined, {
+        experimental_attachments: attachments,
+      });
+      console.log('✅ MultimodalInput: handleSubmit called successfully');
+    } catch (error) {
+      console.error('❌ MultimodalInput: Error in handleSubmit:', error);
+      return;
+    }
 
     setAttachments([]);
     setLocalStorageInput('');
@@ -130,6 +154,8 @@ function PureMultimodalInput({
     setLocalStorageInput,
     width,
     chatId,
+    input,
+    status,
   ]);
 
   const uploadFile = async (file: File) => {

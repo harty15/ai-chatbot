@@ -66,20 +66,42 @@ export function Chat({
     sendExtraMessageFields: true,
     generateId: generateUUID,
     fetch: fetchWithErrorHandlers,
-    experimental_prepareRequestBody: (body) => ({
-      id,
-      message: body.messages.at(-1),
-      selectedChatModel: selectedChatModel,
-      selectedVisibilityType: visibilityType,
-    }),
+    experimental_prepareRequestBody: (body) => {
+      console.log('🔄 Chat: Preparing request body...', {
+        chatId: id,
+        messageCount: body.messages.length,
+        lastMessage: body.messages.at(-1)?.content?.slice(0, 100) + '...',
+        selectedChatModel,
+        visibilityType,
+      });
+      return {
+        id,
+        message: body.messages.at(-1),
+        selectedChatModel: selectedChatModel,
+        selectedVisibilityType: visibilityType,
+      };
+    },
     onFinish: () => {
+      console.log('✅ Chat: Message finished successfully');
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
     onError: (error) => {
+      console.error('❌ Chat: Error occurred:', error);
       if (error instanceof ChatSDKError) {
+        console.error('❌ Chat: ChatSDKError details:', {
+          message: error.message,
+          code: error.code,
+          surface: error.surface,
+        });
         toast({
           type: 'error',
           description: error.message,
+        });
+      } else {
+        console.error('❌ Chat: Unexpected error:', error);
+        toast({
+          type: 'error',
+          description: 'An unexpected error occurred. Please try again.',
         });
       }
     },
@@ -117,6 +139,25 @@ export function Chat({
     data,
     setMessages,
   });
+
+  // Add status monitoring
+  useEffect(() => {
+    console.log('🔄 Chat: Status changed:', status);
+  }, [status]);
+
+  useEffect(() => {
+    console.log('📝 Chat: Messages updated:', {
+      count: messages.length,
+      lastMessage: messages.at(-1)?.content?.slice(0, 100) + '...' || 'No messages',
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    console.log('💭 Chat: Input changed:', {
+      length: input.length,
+      preview: input.slice(0, 50) + (input.length > 50 ? '...' : ''),
+    });
+  }, [input]);
 
   return (
     <>
