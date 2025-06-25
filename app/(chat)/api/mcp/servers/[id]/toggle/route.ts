@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { auth } from '@/app/(auth)/auth';
-import { ChatSDKError } from '@/lib/ai/error';
+import { ChatSDKError } from '@/lib/errors';
 import { getMcpServerById, updateMcpServer } from '@/lib/db/queries';
 import { mcpClientManager } from '@/lib/ai/mcp-client';
 

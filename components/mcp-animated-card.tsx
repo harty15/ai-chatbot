@@ -15,7 +15,9 @@ import {
   Server,
   Play,
   Square,
-  RefreshCw
+  RefreshCw,
+  Terminal,
+  Globe
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
