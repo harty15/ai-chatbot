@@ -32,7 +32,7 @@ export const maxDuration = 30;
  */
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
 
@@ -41,20 +41,25 @@ export async function GET(
   }
 
   try {
+    const { id } = await params;
+
     const server = await getMcpServerById({
-      id: params.id,
+      id: id,
       userId: session.user.id,
     });
 
     if (!server) {
-      return new ChatSDKError('not_found:mcp', 'MCP server not found').toResponse();
+      return new ChatSDKError(
+        'not_found:mcp',
+        'MCP server not found',
+      ).toResponse();
     }
 
     // Get tools for this server
-    const tools = await getMcpToolsByServerId({ serverId: params.id });
+    const tools = await getMcpToolsByServerId({ serverId: id });
 
     // Get connection state from client manager
-    const client = mcpClientManager.getClient(params.id);
+    const client = mcpClientManager.getClient(id);
     const connectionState = client?.getConnectionState() || {
       status: 'disconnected' as const,
       availableTools: [],
@@ -73,7 +78,10 @@ export async function GET(
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
-    return new ChatSDKError('internal:mcp', 'Failed to get MCP server').toResponse();
+    return new ChatSDKError(
+      'internal:mcp',
+      'Failed to get MCP server',
+    ).toResponse();
   }
 }
 
@@ -83,7 +91,7 @@ export async function GET(
  */
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
 
@@ -92,41 +100,48 @@ export async function PATCH(
   }
 
   try {
+    const { id } = await params;
     const json = await request.json();
     const validatedData = updateServerSchema.parse(json);
 
     // Check if server exists and belongs to user
     const existingServer = await getMcpServerById({
-      id: params.id,
+      id: id,
       userId: session.user.id,
     });
 
     if (!existingServer) {
-      return new ChatSDKError('not_found:mcp', 'MCP server not found').toResponse();
+      return new ChatSDKError(
+        'not_found:mcp',
+        'MCP server not found',
+      ).toResponse();
     }
 
     // Update server in database
     const updatedServer = await updateMcpServer({
-      id: params.id,
+      id: id,
       userId: session.user.id,
       ...validatedData,
     });
 
     if (!updatedServer) {
-      return new ChatSDKError('not_found:mcp', 'MCP server not found').toResponse();
+      return new ChatSDKError(
+        'not_found:mcp',
+        'MCP server not found',
+      ).toResponse();
     }
 
     // Update client manager if configuration changed
-    const client = mcpClientManager.getClient(params.id);
-    
+    const client = mcpClientManager.getClient(id);
+
     if (client) {
       // If server was disabled, disconnect and remove from manager
       if (validatedData.isEnabled === false) {
         await client.disconnect();
-        await mcpClientManager.removeServer(params.id);
+        await mcpClientManager.removeServer(id);
       } else {
         // If configuration changed, reconnect
-        const configChanged = 
+        const configChanged =
           validatedData.transportType !== undefined ||
           validatedData.command !== undefined ||
           validatedData.args !== undefined ||
@@ -138,22 +153,23 @@ export async function PATCH(
 
         if (configChanged) {
           await client.disconnect();
-          await mcpClientManager.removeServer(params.id);
+          await mcpClientManager.removeServer(id);
 
           // Re-add with new configuration
-          const transport = updatedServer.transportType === 'stdio' 
-            ? {
-                type: 'stdio' as const,
-                command: updatedServer.command!,
-                args: updatedServer.args || undefined,
-                env: updatedServer.env || undefined,
-              }
-            : {
-                type: 'sse' as const,
-                url: updatedServer.url!,
-              };
+          const transport =
+            updatedServer.transportType === 'stdio'
+              ? {
+                  type: 'stdio' as const,
+                  command: updatedServer.command || '',
+                  args: updatedServer.args || undefined,
+                  env: updatedServer.env || undefined,
+                }
+              : {
+                  type: 'sse' as const,
+                  url: updatedServer.url || '',
+                };
 
-          await mcpClientManager.addServer(params.id, {
+          await mcpClientManager.addServer(id, {
             transport,
             timeout: updatedServer.timeout,
             maxRetries: updatedServer.maxRetries,
@@ -161,10 +177,10 @@ export async function PATCH(
           });
 
           // Attempt to connect
-          const newClient = mcpClientManager.getClient(params.id);
+          const newClient = mcpClientManager.getClient(id);
           if (newClient) {
             newClient.connect().catch((error) => {
-              console.error(`Failed to reconnect to MCP server ${params.id}:`, error);
+              console.error(`Failed to reconnect to MCP server ${id}:`, error);
             });
           }
         }
@@ -172,33 +188,37 @@ export async function PATCH(
     } else if (validatedData.isEnabled !== false && updatedServer.isEnabled) {
       // Server was enabled but not in client manager, add it
       try {
-        const transport = updatedServer.transportType === 'stdio' 
-          ? {
-              type: 'stdio' as const,
-              command: updatedServer.command!,
-              args: updatedServer.args || undefined,
-              env: updatedServer.env || undefined,
-            }
-          : {
-              type: 'sse' as const,
-              url: updatedServer.url!,
-            };
+        const transport =
+          updatedServer.transportType === 'stdio'
+            ? {
+                type: 'stdio' as const,
+                command: updatedServer.command || '',
+                args: updatedServer.args || undefined,
+                env: updatedServer.env || undefined,
+              }
+            : {
+                type: 'sse' as const,
+                url: updatedServer.url || '',
+              };
 
-        await mcpClientManager.addServer(params.id, {
+        await mcpClientManager.addServer(id, {
           transport,
           timeout: updatedServer.timeout,
           maxRetries: updatedServer.maxRetries,
           retryDelay: updatedServer.retryDelay,
         });
 
-        const newClient = mcpClientManager.getClient(params.id);
+        const newClient = mcpClientManager.getClient(id);
         if (newClient) {
           newClient.connect().catch((error) => {
-            console.error(`Failed to connect to MCP server ${params.id}:`, error);
+            console.error(`Failed to connect to MCP server ${id}:`, error);
           });
         }
       } catch (error) {
-        console.error(`Failed to add updated MCP server to client manager:`, error);
+        console.error(
+          `Failed to add updated MCP server to client manager:`,
+          error,
+        );
       }
     }
 
@@ -207,7 +227,7 @@ export async function PATCH(
     if (error instanceof z.ZodError) {
       return new ChatSDKError(
         'bad_request:mcp',
-        `Validation error: ${error.errors.map(e => e.message).join(', ')}`,
+        `Validation error: ${error.errors.map((e) => e.message).join(', ')}`,
       ).toResponse();
     }
 
@@ -216,7 +236,10 @@ export async function PATCH(
     }
 
     console.error('Error updating MCP server:', error);
-    return new ChatSDKError('internal:mcp', 'Failed to update MCP server').toResponse();
+    return new ChatSDKError(
+      'internal:mcp',
+      'Failed to update MCP server',
+    ).toResponse();
   }
 }
 
@@ -226,7 +249,7 @@ export async function PATCH(
  */
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
 
@@ -235,29 +258,34 @@ export async function DELETE(
   }
 
   try {
+    const { id } = await params;
+
     // Check if server exists and belongs to user
     const existingServer = await getMcpServerById({
-      id: params.id,
+      id: id,
       userId: session.user.id,
     });
 
     if (!existingServer) {
-      return new ChatSDKError('not_found:mcp', 'MCP server not found').toResponse();
+      return new ChatSDKError(
+        'not_found:mcp',
+        'MCP server not found',
+      ).toResponse();
     }
 
     // Disconnect and remove from client manager
-    const client = mcpClientManager.getClient(params.id);
+    const client = mcpClientManager.getClient(id);
     if (client) {
       await client.disconnect();
-      await mcpClientManager.removeServer(params.id);
+      await mcpClientManager.removeServer(id);
     }
 
     // Delete tools first (handled by database cascade, but explicit for clarity)
-    await deleteMcpToolsByServerId({ serverId: params.id });
+    await deleteMcpToolsByServerId({ serverId: id });
 
     // Delete server from database
     const deletedServer = await deleteMcpServer({
-      id: params.id,
+      id: id,
       userId: session.user.id,
     });
 
@@ -268,6 +296,9 @@ export async function DELETE(
     }
 
     console.error('Error deleting MCP server:', error);
-    return new ChatSDKError('internal:mcp', 'Failed to delete MCP server').toResponse();
+    return new ChatSDKError(
+      'internal:mcp',
+      'Failed to delete MCP server',
+    ).toResponse();
   }
 }

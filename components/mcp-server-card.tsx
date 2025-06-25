@@ -14,7 +14,8 @@ import {
   Clock,
   Zap,
   Terminal,
-  Globe
+  Globe,
+  Edit
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MCPServerForm } from '@/components/mcp-server-form';
+import { MCPToolsDropdown } from '@/components/mcp-tools-dropdown';
+import { MCPAdvancedSettingsModal } from '@/components/mcp-advanced-settings-modal';
 import type { MCPServerWithTools } from '@/lib/ai/mcp-types';
 
 interface MCPServerCardProps {
@@ -35,6 +38,7 @@ interface MCPServerCardProps {
 export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps) {
   const [loading, setLoading] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toggleLoading, setToggleLoading] = useState(false);
@@ -76,31 +80,6 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
     }
   };
 
-  // Handle server toggle
-  const handleToggleEnabled = async (enabled: boolean) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(`/api/mcp/servers/${server.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isEnabled: enabled }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to update server');
-      }
-
-      const data = await response.json();
-      onUpdate(data.server);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update server');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Handle server enabled/disabled toggle
   const handleToggleEnabled = async (isEnabled: boolean) => {
@@ -228,13 +207,6 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
                 <Badge variant="outline" className="text-xs">
                   {server.transportType.toUpperCase()}
                 </Badge>
-                
-                {server.toolCount > 0 && (
-                  <Badge variant="secondary" className="text-xs gap-1">
-                    <Zap className="w-3 h-3" />
-                    {server.toolCount} tools
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
@@ -262,24 +234,17 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
           </code>
         </div>
 
-        {/* Tools List */}
-        {server.tools && server.tools.length > 0 && (
-          <div className="mb-4">
-            <div className="text-xs text-gray-500 mb-2">Available Tools:</div>
-            <div className="flex flex-wrap gap-1">
-              {server.tools.slice(0, 5).map((tool) => (
-                <Badge key={tool.id} variant="outline" className="text-xs">
-                  {tool.name}
-                </Badge>
-              ))}
-              {server.tools.length > 5 && (
-                <Badge variant="outline" className="text-xs">
-                  +{server.tools.length - 5} more
-                </Badge>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Tools Dropdown */}
+        <div className="mb-4">
+          <div className="text-xs text-gray-500 mb-2">Tools Management:</div>
+          <MCPToolsDropdown 
+            server={server} 
+            onToolToggle={(toolId, enabled) => {
+              console.log(`Tool ${toolId} ${enabled ? 'enabled' : 'disabled'}`);
+              // TODO: Implement tool toggle API call
+            }}
+          />
+        </div>
 
         {/* Error Display */}
         {error && (
@@ -340,11 +305,26 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
 
           <div className="flex-1" />
 
+          {/* Advanced Settings */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                onClick={() => setIsAdvancedSettingsOpen(true)}
+              >
+                <Settings className="w-3 h-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Advanced Settings</TooltipContent>
+          </Tooltip>
+
           {/* Server Management */}
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm" className="px-2">
-                <Settings className="w-3 h-3" />
+                <Edit className="w-3 h-3" />
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -397,6 +377,17 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
           </div>
         )}
       </CardContent>
+      
+      {/* Advanced Settings Modal */}
+      <MCPAdvancedSettingsModal
+        server={server}
+        isOpen={isAdvancedSettingsOpen}
+        onClose={() => setIsAdvancedSettingsOpen(false)}
+        onSave={(settings) => {
+          console.log('Saving advanced settings:', settings);
+          // TODO: Implement API call to save advanced settings
+        }}
+      />
     </Card>
   );
 }

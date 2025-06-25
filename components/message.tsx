@@ -46,8 +46,9 @@ const PurePreviewMessage = ({
       <motion.div
         data-testid={`message-${message.role}`}
         className="w-full mx-auto max-w-3xl px-4 group/message"
-        initial={{ y: 5, opacity: 0 }}
+        initial={{ y: 8, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
         data-role={message.role}
       >
         <div
@@ -126,7 +127,7 @@ const PurePreviewMessage = ({
                       <div
                         data-testid="message-content"
                         className={cn('flex flex-col gap-4', {
-                          'bg-primary text-primary-foreground px-3 py-2 rounded-xl':
+                          'bg-white border border-gray-200 shadow-sm px-4 py-3 rounded-2xl max-w-fit hover:shadow-md transition-shadow duration-200':
                             message.role === 'user',
                         })}
                       >
@@ -227,14 +228,14 @@ const PurePreviewMessage = ({
                           isReadonly={isReadonly}
                         />
                       ) : (
-                        // Enhanced MCP tool display
-                        <div className="p-3 bg-gray-50 border rounded-lg">
+                        // Clean MCP tool execution display
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                           <div className="flex items-center gap-2 mb-2">
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm font-medium">Executing {toolName}</span>
+                            <span className="text-sm font-semibold text-blue-900">Using {toolName}</span>
                           </div>
-                          <div className="text-xs text-gray-600 font-mono bg-gray-100 p-2 rounded">
-                            {JSON.stringify(args, null, 2)}
+                          <div className="text-sm text-blue-700">
+                            Executing tool with provided parameters...
                           </div>
                         </div>
                       )}
@@ -267,18 +268,18 @@ const PurePreviewMessage = ({
                           isReadonly={isReadonly}
                         />
                       ) : (
-                        // Enhanced MCP tool result display
-                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center gap-2 mb-2">
+                        // Clean MCP tool result display
+                        <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                          <div className="flex items-center gap-2 mb-3">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-sm font-medium text-green-800">
+                            <span className="text-sm font-semibold text-green-900">
                               {toolName} completed
                             </span>
                           </div>
-                          <div className="text-sm text-gray-700">
+                          <div className="text-sm text-green-800 bg-white p-3 rounded-lg border border-green-100">
                             {typeof result === 'string' 
                               ? result 
-                              : result?.content?.[0]?.text || JSON.stringify(result, null, 2)
+                              : result?.content?.[0]?.text || 'Task completed successfully'
                             }
                           </div>
                         </div>

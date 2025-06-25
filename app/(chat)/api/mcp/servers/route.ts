@@ -4,6 +4,7 @@ import {
   createMcpServer,
   getMcpServersByUserId,
   getMcpDashboardStats,
+  getMcpToolsByServerId,
 } from '@/lib/db/queries';
 import { mcpClientManager } from '@/lib/ai/mcp-client';
 import type { MCPServerFormData } from '@/lib/ai/mcp-types';
@@ -44,22 +45,39 @@ export async function GET() {
     // Get connection states from the MCP client manager
     const connectionStates = mcpClientManager.getAllConnectionStates();
 
-    // Combine server data with connection states
-    const serversWithState = servers.map((server) => ({
-      ...server,
-      connectionState: connectionStates[server.id] || {
-        status: 'disconnected' as const,
-        availableTools: [],
-        retryCount: 0,
-      },
-    }));
+    // Get tools for each server and combine all data
+    const serversWithDetails = await Promise.all(
+      servers.map(async (server) => {
+        // Get database tools for this server
+        const tools = await getMcpToolsByServerId({ serverId: server.id });
 
-    return Response.json({ servers: serversWithState });
+        // Get connection state
+        const connectionState = connectionStates[server.id] || {
+          status: 'disconnected' as const,
+          availableTools: [],
+          retryCount: 0,
+        };
+
+        return {
+          ...server,
+          tools,
+          toolCount: tools.length,
+          connectionState,
+          // Also expose availableTools at the server level for backward compatibility
+          availableTools: connectionState.availableTools,
+        };
+      }),
+    );
+
+    return Response.json({ servers: serversWithDetails });
   } catch (error) {
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
-    return new ChatSDKError('internal:mcp', 'Failed to get MCP servers').toResponse();
+    return new ChatSDKError(
+      'internal:mcp',
+      'Failed to get MCP servers',
+    ).toResponse();
   }
 }
 
@@ -102,17 +120,18 @@ export async function POST(request: Request) {
     // Add server to MCP client manager if enabled
     if (validatedData.isEnabled !== false) {
       try {
-        const transport = validatedData.transportType === 'stdio' 
-          ? {
-              type: 'stdio' as const,
-              command: validatedData.command!,
-              args: validatedData.args,
-              env: validatedData.env,
-            }
-          : {
-              type: 'sse' as const,
-              url: validatedData.url!,
-            };
+        const transport =
+          validatedData.transportType === 'stdio'
+            ? {
+                type: 'stdio' as const,
+                command: validatedData.command || '',
+                args: validatedData.args,
+                env: validatedData.env,
+              }
+            : {
+                type: 'sse' as const,
+                url: validatedData.url || '',
+              };
 
         await mcpClientManager.addServer(server.id, {
           transport,
@@ -125,7 +144,10 @@ export async function POST(request: Request) {
         const client = mcpClientManager.getClient(server.id);
         if (client) {
           client.connect().catch((error) => {
-            console.error(`Failed to connect to MCP server ${server.id}:`, error);
+            console.error(
+              `Failed to connect to MCP server ${server.id}:`,
+              error,
+            );
           });
         }
       } catch (error) {
@@ -139,7 +161,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return new ChatSDKError(
         'bad_request:mcp',
-        `Validation error: ${error.errors.map(e => e.message).join(', ')}`,
+        `Validation error: ${error.errors.map((e) => e.message).join(', ')}`,
       ).toResponse();
     }
 
@@ -148,6 +170,9 @@ export async function POST(request: Request) {
     }
 
     console.error('Error creating MCP server:', error);
-    return new ChatSDKError('internal:mcp', 'Failed to create MCP server').toResponse();
+    return new ChatSDKError(
+      'internal:mcp',
+      'Failed to create MCP server',
+    ).toResponse();
   }
 }

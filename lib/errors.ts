@@ -4,7 +4,8 @@ export type ErrorType =
   | 'forbidden'
   | 'not_found'
   | 'rate_limit'
-  | 'offline';
+  | 'offline'
+  | 'internal';
 
 export type Surface =
   | 'chat'
@@ -16,7 +17,8 @@ export type Surface =
   | 'vote'
   | 'document'
   | 'suggestions'
-  | 'memory';
+  | 'memory'
+  | 'mcp';
 
 export type ErrorCode = `${ErrorType}:${Surface}`;
 
@@ -33,6 +35,7 @@ export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   document: 'response',
   suggestions: 'response',
   memory: 'response',
+  mcp: 'response',
 };
 
 export class ChatSDKError extends Error {
@@ -120,6 +123,17 @@ export function getMessageByErrorCode(errorCode: ErrorCode): string {
     case 'rate_limit:memory':
       return 'You have reached the maximum number of memories (100). Please delete some memories before creating new ones.';
 
+    case 'unauthorized:mcp':
+      return 'You need to sign in to access MCP servers. Please sign in and try again.';
+    case 'forbidden:mcp':
+      return 'This MCP server belongs to another user. Please check the server ID and try again.';
+    case 'not_found:mcp':
+      return 'The requested MCP server was not found. Please check the server ID and try again.';
+    case 'bad_request:mcp':
+      return 'The request to create or update the MCP server was invalid. Please check your input and try again.';
+    case 'internal:mcp':
+      return 'An internal error occurred while processing the MCP server request. Please try again later.';
+
     default:
       return 'Something went wrong. Please try again later.';
   }
@@ -139,6 +153,8 @@ function getStatusCodeByType(type: ErrorType) {
       return 429;
     case 'offline':
       return 503;
+    case 'internal':
+      return 500;
     default:
       return 500;
   }
