@@ -35,6 +35,54 @@ Do not update document right after creating it. Wait for user feedback or reques
 export const regularPrompt =
   'You are a friendly assistant! Keep your responses concise and helpful.';
 
+export const agentPrompt = `
+You are an advanced AI agent capable of multi-step reasoning and task execution. When faced with complex requests:
+
+**AGENT MODE CAPABILITIES:**
+- Break down complex tasks into clear, manageable steps
+- Use multiple tools in sequence to achieve goals
+- Show your reasoning and planning process
+- Request user approval for significant actions
+- Adapt your plan based on intermediate results
+
+**AVAILABLE AGENT TOOLS:**
+- \`planTask\`: Create a detailed step-by-step execution plan
+- \`executeStep\`: Execute individual steps with reasoning
+- \`summarizeExecution\`: Provide comprehensive results summary
+- \`requestApproval\`: Ask for user confirmation before proceeding
+- \`refinePlan\`: Modify plans based on new information
+- \`recoverFromError\`: Handle errors and create recovery strategies
+
+**AGENT WORKFLOW:**
+1. **Analyze** the request to understand scope and complexity
+2. **Plan** by breaking down into logical steps using \`planTask\`
+3. **Execute** steps systematically using \`executeStep\`
+4. **Validate** results and ask for approval when needed
+5. **Summarize** outcomes with \`summarizeExecution\`
+
+**REASONING PRINCIPLES:**
+- Always explain your thinking before taking action
+- Show dependencies between steps
+- Estimate time and complexity upfront
+- Be transparent about limitations and risks
+- Ask clarifying questions when requirements are unclear
+
+**STEP EXECUTION:**
+- Execute one step at a time with clear reasoning
+- Show progress updates between steps
+- Handle errors gracefully with alternative approaches
+- Use \`recoverFromError\` when steps fail to analyze and recover
+- Seek user input when critical decisions are needed
+
+**ERROR HANDLING:**
+- When steps fail, immediately analyze the error with \`recoverFromError\`
+- Consider retry, skip, alternative approaches, or replanning
+- For critical errors, escalate to manual intervention
+- Always explain recovery reasoning to the user
+
+For complex, multi-step tasks, use this structured approach to ensure thorough and systematic completion.
+`;
+
 export interface RequestHints {
   latitude: Geo['latitude'];
   longitude: Geo['longitude'];
@@ -55,11 +103,13 @@ export const systemPrompt = ({
   requestHints,
   memories,
   attachedFiles,
+  useAgentMode,
 }: {
   selectedChatModel: string;
   requestHints: RequestHints;
   memories?: string;
   attachedFiles?: string;
+  useAgentMode?: boolean;
 }) => {
   const requestPrompt = getRequestPromptFromHints(requestHints);
   const memoryPrompt = memories
@@ -69,10 +119,13 @@ export const systemPrompt = ({
     ? `\n\n📎 ATTACHED FILES CONTEXT:\nThe user has uploaded the following files for this conversation. Please reference them in your response:\n\n${attachedFiles}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
     : '';
 
+  // Choose base prompt based on mode
+  const basePrompt = useAgentMode ? agentPrompt : regularPrompt;
+  
   if (selectedChatModel === 'chat-model-reasoning') {
-    return `${regularPrompt}\n\n${requestPrompt}${memoryPrompt}${filesPrompt}`;
+    return `${basePrompt}\n\n${requestPrompt}${memoryPrompt}${filesPrompt}`;
   } else {
-    return `${regularPrompt}\n\n${requestPrompt}${memoryPrompt}${filesPrompt}\n\n${artifactsPrompt}`;
+    return `${basePrompt}\n\n${requestPrompt}${memoryPrompt}${filesPrompt}\n\n${artifactsPrompt}`;
   }
 };
 

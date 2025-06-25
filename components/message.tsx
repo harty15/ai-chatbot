@@ -18,6 +18,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { MessageEditor } from './message-editor';
 import { DocumentPreview } from './document-preview';
 import { MessageReasoning } from './message-reasoning';
+import { AgentPlan } from './agent-plan';
+import { AgentProgress, AgentAnnouncement } from './agent-progress';
+import { AgentDecision, AgentReasoning } from './agent-decision';
+import AgentErrorRecovery from './agent-error-recovery';
 import type { UseChatHelpers } from '@ai-sdk/react';
 
 const PurePreviewMessage = ({
@@ -48,7 +52,7 @@ const PurePreviewMessage = ({
         className="w-full mx-auto max-w-3xl px-4 group/message"
         initial={{ y: 8, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
         data-role={message.role}
       >
         <div
@@ -157,11 +161,14 @@ const PurePreviewMessage = ({
               // Handle URL sources (AI SDK 4.2+ feature)
               if (type === 'source') {
                 return (
-                  <div key={key} className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                  <div
+                    key={key}
+                    className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm"
+                  >
                     <span className="text-blue-600 font-medium">Source:</span>
-                    <a 
-                      href={part.source.url} 
-                      target="_blank" 
+                    <a
+                      href={part.source.url}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-700 hover:text-blue-900 underline truncate"
                     >
@@ -171,12 +178,14 @@ const PurePreviewMessage = ({
                 );
               }
 
-              // Handle file generation (AI SDK 4.2+ feature) 
+              // Handle file generation (AI SDK 4.2+ feature)
               if (type === 'file') {
                 if (part.mimeType?.startsWith('image/')) {
                   return (
                     <div key={key} className="flex flex-col gap-2">
-                      <div className="text-sm text-gray-600">Generated Image:</div>
+                      <div className="text-sm text-gray-600">
+                        Generated Image:
+                      </div>
                       <img
                         src={`data:${part.mimeType};base64,${part.data}`}
                         alt="Generated image"
@@ -185,10 +194,13 @@ const PurePreviewMessage = ({
                     </div>
                   );
                 }
-                
+
                 // Handle other file types
                 return (
-                  <div key={key} className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg">
+                  <div
+                    key={key}
+                    className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg"
+                  >
                     <div className="text-sm">
                       <div className="font-medium">Generated File</div>
                       <div className="text-gray-600">Type: {part.mimeType}</div>
@@ -227,12 +239,62 @@ const PurePreviewMessage = ({
                           args={args}
                           isReadonly={isReadonly}
                         />
+                      ) : toolName === 'announceAgentMode' ? (
+                        <AgentAnnouncement {...args} />
+                      ) : toolName === 'showProgress' ? (
+                        <AgentProgress {...args} />
+                      ) : toolName === 'requestDecision' ? (
+                        <AgentDecision
+                          {...args}
+                          onDecision={() => {}}
+                          disabled={true}
+                        />
+                      ) : toolName === 'explainReasoning' ? (
+                        <AgentReasoning {...args} />
+                      ) : toolName === 'handleError' ? (
+                        <AgentErrorRecovery
+                          {...args}
+                          onRecovery={() => {}}
+                          onSkip={() => {}}
+                          onAbort={() => {}}
+                          disabled={true}
+                        />
+                      ) : [
+                          'planTask',
+                          'executeStep',
+                          'summarizeExecution',
+                          'refinePlan',
+                          'requestApproval',
+                        ].includes(toolName) ? (
+                        // Agent core tool execution display
+                        <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                            <span className="text-sm font-semibold text-purple-900">
+                              🤖 Agent: {toolName}
+                            </span>
+                          </div>
+                          <div className="text-sm text-purple-700">
+                            {toolName === 'planTask' &&
+                              'Creating detailed execution plan...'}
+                            {toolName === 'executeStep' &&
+                              'Executing step with reasoning...'}
+                            {toolName === 'summarizeExecution' &&
+                              'Generating comprehensive summary...'}
+                            {toolName === 'refinePlan' &&
+                              'Adapting plan based on new information...'}
+                            {toolName === 'requestApproval' &&
+                              'Requesting user approval...'}
+                          </div>
+                        </div>
                       ) : (
                         // Clean MCP tool execution display
                         <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                           <div className="flex items-center gap-2 mb-2">
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm font-semibold text-blue-900">Using {toolName}</span>
+                            <span className="text-sm font-semibold text-blue-900">
+                              Using {toolName}
+                            </span>
                           </div>
                           <div className="text-sm text-blue-700">
                             Executing tool with provided parameters...
@@ -267,6 +329,99 @@ const PurePreviewMessage = ({
                           result={result}
                           isReadonly={isReadonly}
                         />
+                      ) : toolName === 'planTask' && result?.plan ? (
+                        <AgentPlan plan={result.plan} />
+                      ) : toolName === 'provideSummary' ? (
+                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                            <span className="text-sm font-semibold text-emerald-900">
+                              🎯 Execution Summary
+                            </span>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="bg-white p-3 rounded-lg border border-emerald-100">
+                              <h4 className="font-medium text-emerald-900 mb-2">
+                                {result.planTitle}
+                              </h4>
+                              <div className="grid grid-cols-2 gap-4 text-sm text-emerald-800">
+                                <div>
+                                  Status:{' '}
+                                  <strong>{result.executionStatus}</strong>
+                                </div>
+                                <div>
+                                  Success Rate:{' '}
+                                  <strong>{result.successRate}%</strong>
+                                </div>
+                                <div>
+                                  Completed:{' '}
+                                  <strong>
+                                    {result.completedSteps}/{result.totalSteps}
+                                  </strong>
+                                </div>
+                                <div>
+                                  Duration: <strong>{result.duration}</strong>
+                                </div>
+                              </div>
+                            </div>
+                            {result.keyResults?.length > 0 && (
+                              <div className="space-y-2">
+                                <h5 className="font-medium text-emerald-900">
+                                  Key Results:
+                                </h5>
+                                <ul className="space-y-1 text-sm text-emerald-800">
+                                  {result.keyResults.map(
+                                    (outcome: string, i: number) => (
+                                      <li
+                                        key={i}
+                                        className="flex items-start gap-2"
+                                      >
+                                        <span className="text-emerald-500 mt-1">
+                                          ✓
+                                        </span>
+                                        {outcome}
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : [
+                          'executeStep',
+                          'refinePlan',
+                          'requestApproval',
+                        ].includes(toolName) ? (
+                        // Agent core tool result display
+                        <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span className="text-sm font-semibold text-purple-900">
+                              🤖 Agent: {toolName} completed
+                            </span>
+                          </div>
+                          <div className="text-sm text-purple-800 bg-white p-3 rounded-lg border border-purple-100">
+                            {result?.success ? (
+                              <div className="space-y-2">
+                                {result.reasoning && (
+                                  <div>
+                                    <strong>Reasoning:</strong>{' '}
+                                    {result.reasoning}
+                                  </div>
+                                )}
+                                {typeof result.result === 'string'
+                                  ? result.result
+                                  : result.message ||
+                                    'Step completed successfully'}
+                              </div>
+                            ) : (
+                              <div className="text-red-700">
+                                {result?.error || 'Step failed'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ) : (
                         // Clean MCP tool result display
                         <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
@@ -277,10 +432,10 @@ const PurePreviewMessage = ({
                             </span>
                           </div>
                           <div className="text-sm text-green-800 bg-white p-3 rounded-lg border border-green-100">
-                            {typeof result === 'string' 
-                              ? result 
-                              : result?.content?.[0]?.text || 'Task completed successfully'
-                            }
+                            {typeof result === 'string'
+                              ? result
+                              : result?.content?.[0]?.text ||
+                                'Task completed successfully'}
                           </div>
                         </div>
                       )}
@@ -322,16 +477,16 @@ export const PreviewMessage = memo(
 
 export const ThinkingMessage = () => {
   const [dots, setDots] = useState('');
-  
+
   // Animated thinking dots
-  useState(() => {
+  useEffect(() => {
     const interval = setInterval(() => {
-      setDots(prev => {
+      setDots((prev) => {
         if (prev === '...') return '';
         return prev + '.';
       });
     }, 500);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -348,7 +503,7 @@ export const ThinkingMessage = () => {
         <div className="size-8 flex items-center rounded-full justify-center ring-1 shrink-0 ring-border bg-background">
           <motion.div
             animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
             className="translate-y-px"
           >
             <SparklesIcon size={14} />

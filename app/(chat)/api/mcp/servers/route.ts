@@ -5,6 +5,7 @@ import {
   getMcpServersByUserId,
   getMcpDashboardStats,
   getMcpToolsByServerId,
+  updateMcpServer,
 } from '@/lib/db/queries';
 import { mcpClientManager } from '@/lib/ai/mcp-client';
 import type { MCPServerFormData } from '@/lib/ai/mcp-types';
@@ -38,38 +39,90 @@ export async function GET() {
   }
 
   try {
-    const servers = await getMcpServersByUserId({
-      userId: session.user.id,
-    });
+    const servers = await getMcpServersByUserId({ userId: session.user.id });
 
-    // Get connection states from the MCP client manager
-    const connectionStates = mcpClientManager.getAllConnectionStates();
-
-    // Get tools for each server and combine all data
-    const serversWithDetails = await Promise.all(
+    // Sync database connection states with actual client manager states
+    const syncedServers = await Promise.all(
       servers.map(async (server) => {
-        // Get database tools for this server
-        const tools = await getMcpToolsByServerId({ serverId: server.id });
+        const client = mcpClientManager.getClient(server.id);
+        const isActuallyConnected = client?.isConnected() || false;
+        const dbSaysConnected = server.connectionStatus === 'connected';
+        let syncedServer = { ...server };
 
-        // Get connection state
-        const connectionState = connectionStates[server.id] || {
-          status: 'disconnected' as const,
+        // Handle state mismatch: sync database to reality
+        if (dbSaysConnected && !isActuallyConnected) {
+          console.log(
+            `🔄 Syncing ${server.name}: DB says connected but client isn't. Updating DB...`,
+          );
+
+          try {
+            await updateMcpServer({
+              id: server.id,
+              userId: session.user.id,
+              connectionStatus: 'disconnected',
+              lastError: undefined,
+            });
+
+            syncedServer = {
+              ...server,
+              connectionStatus: 'disconnected' as const,
+            };
+          } catch (updateError) {
+            console.log(`⚠️  Failed to sync ${server.name} state:`, updateError);
+          }
+        }
+
+        // Handle reverse mismatch: DB says disconnected but client is connected
+        if (!dbSaysConnected && isActuallyConnected) {
+          console.log(
+            `🔄 Syncing ${server.name}: DB says disconnected but client is connected. Updating DB...`,
+          );
+
+          try {
+            await updateMcpServer({
+              id: server.id,
+              userId: session.user.id,
+              connectionStatus: 'connected',
+              lastConnected: new Date(),
+              lastError: undefined,
+            });
+
+            syncedServer = {
+              ...server,
+              connectionStatus: 'connected' as const,
+              lastConnected: new Date(),
+            };
+          } catch (updateError) {
+            console.log(`⚠️  Failed to sync ${server.name} state:`, updateError);
+          }
+        }
+
+        // Always get real-time connection state from client manager
+        const connectionState = client?.getConnectionState() || {
+          status: (syncedServer.connectionStatus || 'disconnected') as 'connected' | 'disconnected' | 'connecting' | 'error',
           availableTools: [],
           retryCount: 0,
+          lastError: syncedServer.lastError,
         };
 
+        // Ensure connection state matches the client reality
+        if (isActuallyConnected && connectionState.status !== 'connected') {
+          connectionState.status = 'connected';
+        } else if (!isActuallyConnected && connectionState.status === 'connected') {
+          connectionState.status = 'disconnected';
+        }
+
         return {
-          ...server,
-          tools,
-          toolCount: tools.length,
+          ...syncedServer,
           connectionState,
-          // Also expose availableTools at the server level for backward compatibility
-          availableTools: connectionState.availableTools,
         };
       }),
     );
 
-    return Response.json({ servers: serversWithDetails });
+    return Response.json({
+      servers: syncedServers,
+      message: 'Servers retrieved and synced successfully',
+    });
   } catch (error) {
     if (error instanceof ChatSDKError) {
       return error.toResponse();

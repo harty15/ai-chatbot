@@ -8,11 +8,13 @@ import type {
   MCPToolDefinition,
   MCPToolCall,
   MCPToolResult,
+  MCPEvent,
+} from './mcp-types';
+import {
   MCPError,
   MCPConnectionError,
   MCPToolExecutionError,
   MCPTimeoutError,
-  MCPEvent,
 } from './mcp-types';
 import { MCPErrorHandler } from './mcp-error-handler';
 
@@ -24,7 +26,8 @@ export class MCPClient {
   private connectionState: MCPConnectionState;
   private connectionPromise: Promise<void> | null = null;
   private reconnectTimeoutId: NodeJS.Timeout | null = null;
-  private eventListeners: Map<string, Set<(event: MCPEvent) => void>> = new Map();
+  private eventListeners: Map<string, Set<(event: MCPEvent) => void>> =
+    new Map();
 
   constructor(
     public readonly serverId: string,
@@ -41,29 +44,41 @@ export class MCPClient {
    * Connect to the MCP server
    */
   async connect(): Promise<void> {
-    if (this.connectionState.status === 'connecting' && this.connectionPromise) {
+    if (
+      this.connectionState.status === 'connecting' &&
+      this.connectionPromise
+    ) {
       return this.connectionPromise;
     }
 
+    console.log(`🔌 Attempting to connect to MCP server: ${this.serverId}`);
     this.connectionState.status = 'connecting';
     this.emitEvent({ type: 'connection_status_changed', status: 'connecting' });
 
     this.connectionPromise = this._performConnection().catch((error) => {
       // Always handle connection errors to prevent unhandled rejections
-      console.warn(`MCP connection failed for server ${this.serverId}:`, error);
+      console.warn(
+        `❌ MCP connection failed for server ${this.serverId}:`,
+        error,
+      );
       this.connectionState.status = 'error';
       this.connectionState.lastError = error.message || 'Connection failed';
-      this.emitEvent({ 
-        type: 'connection_status_changed', 
+      this.emitEvent({
+        type: 'connection_status_changed',
         status: 'error',
-        error: error.message 
+        error: error.message,
       });
       throw error;
     });
-    
+
     try {
       await this.connectionPromise;
+      console.log(`✅ Successfully connected to MCP server: ${this.serverId}`);
     } catch (error) {
+      console.error(
+        `❌ Final connection failure for server ${this.serverId}:`,
+        error,
+      );
       // Re-throw but ensure it's handled
       throw error;
     } finally {
@@ -87,7 +102,10 @@ export class MCPClient {
           await this.client.close();
         }
       } catch (error) {
-        console.warn(`Error closing MCP client for server ${this.serverId}:`, error);
+        console.warn(
+          `Error closing MCP client for server ${this.serverId}:`,
+          error,
+        );
       }
       this.client = null;
     }
@@ -96,8 +114,11 @@ export class MCPClient {
     this.connectionState.serverInfo = undefined;
     this.connectionState.availableTools = [];
     this.connectionState.retryCount = 0;
-    
-    this.emitEvent({ type: 'connection_status_changed', status: 'disconnected' });
+
+    this.emitEvent({
+      type: 'connection_status_changed',
+      status: 'disconnected',
+    });
   }
 
   /**
@@ -133,7 +154,7 @@ export class MCPClient {
     }
 
     const startTime = Date.now();
-    
+
     try {
       this.emitEvent({
         type: 'tool_execution',
@@ -143,10 +164,13 @@ export class MCPClient {
       });
 
       // Use AI SDK's MCP client to call the tool
-      const result = await this.client.callTool(toolCall.name, toolCall.arguments);
-      
+      const result = await this.client.callTool(
+        toolCall.name,
+        toolCall.arguments,
+      );
+
       const executionTime = Date.now() - startTime;
-      
+
       this.emitEvent({
         type: 'tool_execution',
         toolName: toolCall.name,
@@ -159,8 +183,9 @@ export class MCPClient {
       return result;
     } catch (error) {
       const executionTime = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+
       this.emitEvent({
         type: 'tool_execution',
         toolName: toolCall.name,
@@ -177,12 +202,12 @@ export class MCPClient {
           this.serverId,
           toolCall.name,
         );
-        
+
         MCPErrorHandler.handleTimeoutError(
           timeoutError,
-          `tool execution for ${toolCall.name}`
+          `tool execution for ${toolCall.name}`,
         );
-        
+
         throw timeoutError;
       }
 
@@ -196,7 +221,7 @@ export class MCPClient {
       MCPErrorHandler.handleToolExecutionError(
         toolError,
         toolCall.name,
-        this.config.name || `Server ${this.serverId}`
+        this.config.name || `Server ${this.serverId}`,
       );
 
       throw toolError;
@@ -216,7 +241,7 @@ export class MCPClient {
     } catch (error) {
       MCPErrorHandler.handleGeneralError(
         error instanceof Error ? error : new Error(String(error)),
-        `getting tools from server ${this.serverId}`
+        `getting tools from server ${this.serverId}`,
       );
       return {};
     }
@@ -225,7 +250,10 @@ export class MCPClient {
   /**
    * Add event listener
    */
-  addEventListener(eventType: string, listener: (event: MCPEvent) => void): void {
+  addEventListener(
+    eventType: string,
+    listener: (event: MCPEvent) => void,
+  ): void {
     if (!this.eventListeners.has(eventType)) {
       this.eventListeners.set(eventType, new Set());
     }
@@ -235,7 +263,10 @@ export class MCPClient {
   /**
    * Remove event listener
    */
-  removeEventListener(eventType: string, listener: (event: MCPEvent) => void): void {
+  removeEventListener(
+    eventType: string,
+    listener: (event: MCPEvent) => void,
+  ): void {
     const listeners = this.eventListeners.get(eventType);
     if (listeners) {
       listeners.delete(listener);
@@ -248,17 +279,45 @@ export class MCPClient {
   private async _performConnection(): Promise<void> {
     const maxRetries = this.config.maxRetries ?? 3;
     const retryDelay = this.config.retryDelay ?? 1000;
+    const timeout = this.config.timeout ?? 10000; // Reduced default timeout
+
+    console.log(`🔗 MCP Connection config for ${this.serverId}:`, {
+      transport: this.config.transport.type,
+      timeout,
+      maxRetries,
+      url:
+        this.config.transport.type === 'sse'
+          ? this.config.transport.url
+          : 'N/A',
+    });
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        // Create MCP client using AI SDK
-        this.client = await createMCPClient({
+        console.log(
+          `🔄 Connection attempt ${attempt + 1}/${maxRetries + 1} for server ${this.serverId}`,
+        );
+
+        // Validate transport configuration before attempting connection
+        this._validateTransportConfig();
+
+        // Create MCP client using AI SDK with timeout
+        const connectionPromise = createMCPClient({
           transport: this.config.transport,
         });
 
-        // Get server information
+        // Add timeout wrapper
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error(`Connection timeout after ${timeout}ms`)),
+            timeout,
+          );
+        });
+
+        this.client = await Promise.race([connectionPromise, timeoutPromise]);
+
+        // Test the connection by getting server info
         const serverInfo = await this._getServerInfo();
-        
+
         // Get available tools
         const tools = await this._getTools();
 
@@ -281,20 +340,29 @@ export class MCPClient {
           tools,
         });
 
+        console.log(
+          `✅ MCP server ${this.serverId} connected successfully with ${tools.length} tools`,
+        );
         return;
       } catch (error) {
-        const mcpError = error instanceof MCPConnectionError 
-          ? error 
-          : new MCPConnectionError(
-              error instanceof Error ? error.message : 'Unknown error',
-              this.serverId,
-            );
-        
+        const mcpError =
+          error instanceof MCPConnectionError
+            ? error
+            : new MCPConnectionError(
+                error instanceof Error ? error.message : 'Unknown error',
+                this.serverId,
+              );
+
+        console.warn(
+          `⚠️ Connection attempt ${attempt + 1} failed for server ${this.serverId}:`,
+          mcpError.message,
+        );
+
         if (attempt === maxRetries) {
           this.connectionState.status = 'error';
           this.connectionState.lastError = mcpError.message;
           this.connectionState.retryCount = attempt + 1;
-          
+
           this.emitEvent({
             type: 'connection_status_changed',
             status: 'error',
@@ -308,15 +376,51 @@ export class MCPClient {
             this.config.name || `Server ${this.serverId}`,
             async () => {
               // Retry callback - attempt to reconnect
-              await this.connect();
-            }
+              setTimeout(() => this.connect(), 5000); // Retry after 5 seconds
+            },
           );
 
           throw mcpError;
         }
 
         // Wait before retrying with exponential backoff
-        await new Promise((resolve) => setTimeout(resolve, retryDelay * (attempt + 1)));
+        const backoffDelay = retryDelay * Math.pow(2, attempt);
+        console.log(
+          `⏳ Waiting ${backoffDelay}ms before retry for server ${this.serverId}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+      }
+    }
+  }
+
+  /**
+   * Validate transport configuration
+   */
+  private _validateTransportConfig(): void {
+    const transport = this.config.transport;
+
+    if (transport.type === 'sse') {
+      if (!transport.url) {
+        throw new MCPConnectionError(
+          'SSE transport requires a URL',
+          this.serverId,
+        );
+      }
+
+      try {
+        new URL(transport.url);
+      } catch {
+        throw new MCPConnectionError(
+          `Invalid SSE URL: ${transport.url}`,
+          this.serverId,
+        );
+      }
+    } else if (transport.type === 'stdio') {
+      if (!transport.command) {
+        throw new MCPConnectionError(
+          'stdio transport requires a command',
+          this.serverId,
+        );
       }
     }
   }
@@ -354,7 +458,7 @@ export class MCPClient {
     try {
       // Get tools using AI SDK client
       const toolsObject = await this.client.tools();
-      
+
       // Convert to our tool definition format
       return Object.entries(toolsObject).map(([name, tool]: [string, any]) => ({
         name,
@@ -392,6 +496,37 @@ export class MCPClient {
       });
     }
   }
+
+  /**
+   * Check if this client should be connected (graceful state check)
+   */
+  shouldBeConnected(): boolean {
+    return (
+      this.connectionState.status === 'connected' ||
+      this.connectionState.status === 'connecting'
+    );
+  }
+
+  /**
+   * Gracefully reconnect if the connection was lost
+   */
+  async gracefulReconnect(): Promise<void> {
+    if (this.connectionState.status === 'connected' && !this.isConnected()) {
+      console.log(`🔄 Graceful reconnect for MCP server: ${this.serverId}`);
+
+      try {
+        // Reset state and reconnect
+        this.connectionState.status = 'disconnected';
+        await this.connect();
+      } catch (error) {
+        console.warn(
+          `❌ Graceful reconnect failed for server ${this.serverId}:`,
+          error,
+        );
+        throw error;
+      }
+    }
+  }
 }
 
 /**
@@ -399,22 +534,35 @@ export class MCPClient {
  */
 export class MCPClientManager {
   private clients: Map<string, MCPClient> = new Map();
-  private globalEventListeners: Map<string, Set<(event: MCPEvent) => void>> = new Map();
+  private globalEventListeners: Map<string, Set<(event: MCPEvent) => void>> =
+    new Map();
 
   /**
    * Add a new MCP server
    */
-  async addServer(serverId: string, config: MCPClientConfig): Promise<MCPClient> {
+  async addServer(
+    serverId: string,
+    config: MCPClientConfig,
+  ): Promise<MCPClient> {
     if (this.clients.has(serverId)) {
-      throw new MCPError(`Server ${serverId} already exists`, 'DUPLICATE_SERVER');
+      throw new MCPError(
+        `Server ${serverId} already exists`,
+        'DUPLICATE_SERVER',
+      );
     }
 
     const client = new MCPClient(serverId, config);
-    
+
     // Forward all events to global listeners
-    client.addEventListener('connection_status_changed', (event) => this.emitGlobalEvent(event));
-    client.addEventListener('tools_updated', (event) => this.emitGlobalEvent(event));
-    client.addEventListener('tool_execution', (event) => this.emitGlobalEvent(event));
+    client.addEventListener('connection_status_changed', (event) =>
+      this.emitGlobalEvent(event),
+    );
+    client.addEventListener('tools_updated', (event) =>
+      this.emitGlobalEvent(event),
+    );
+    client.addEventListener('tool_execution', (event) =>
+      this.emitGlobalEvent(event),
+    );
 
     this.clients.set(serverId, client);
     return client;
@@ -479,7 +627,7 @@ export class MCPClientManager {
         } catch (error) {
           MCPErrorHandler.handleGeneralError(
             error instanceof Error ? error : new Error(String(error)),
-            `getting tools from server ${serverId}`
+            `getting tools from server ${serverId}`,
           );
         }
       }
@@ -493,7 +641,7 @@ export class MCPClientManager {
    */
   getAllConnectionStates(): Record<string, MCPConnectionState> {
     const states: Record<string, MCPConnectionState> = {};
-    
+
     for (const [serverId, client] of this.clients) {
       states[serverId] = client.getConnectionState();
     }
@@ -504,7 +652,10 @@ export class MCPClientManager {
   /**
    * Add global event listener
    */
-  addEventListener(eventType: string, listener: (event: MCPEvent) => void): void {
+  addEventListener(
+    eventType: string,
+    listener: (event: MCPEvent) => void,
+  ): void {
     if (!this.globalEventListeners.has(eventType)) {
       this.globalEventListeners.set(eventType, new Set());
     }
@@ -514,7 +665,10 @@ export class MCPClientManager {
   /**
    * Remove global event listener
    */
-  removeEventListener(eventType: string, listener: (event: MCPEvent) => void): void {
+  removeEventListener(
+    eventType: string,
+    listener: (event: MCPEvent) => void,
+  ): void {
     const listeners = this.globalEventListeners.get(eventType);
     if (listeners) {
       listeners.delete(listener);
@@ -568,7 +722,9 @@ export class MCPClientManager {
    * Get connected server count
    */
   getConnectedCount(): number {
-    return Array.from(this.clients.values()).filter(client => client.isConnected()).length;
+    return Array.from(this.clients.values()).filter((client) =>
+      client.isConnected(),
+    ).length;
   }
 
   /**
@@ -601,20 +757,24 @@ export const mcpClientManager = new MCPClientManager();
 // Add global error handlers for MCP-related unhandled rejections
 if (typeof process !== 'undefined') {
   const originalUnhandledRejection = process.listeners('unhandledRejection');
-  
+
   process.on('unhandledRejection', (reason: any, promise) => {
     // Check if this is an MCP-related error
-    if (reason && (
-      reason.message?.includes('terminated') ||
-      reason.message?.includes('SocketError') ||
-      reason.message?.includes('other side closed') ||
-      reason.code === 'UND_ERR_SOCKET'
-    )) {
+    if (
+      reason &&
+      (reason.message?.includes('terminated') ||
+        reason.message?.includes('SocketError') ||
+        reason.message?.includes('other side closed') ||
+        reason.code === 'UND_ERR_SOCKET')
+    ) {
       // Log it but don't crash the process
-      console.warn('MCP socket connection closed unexpectedly:', reason.message || reason);
+      console.warn(
+        'MCP socket connection closed unexpectedly:',
+        reason.message || reason,
+      );
       return;
     }
-    
+
     // Re-emit for other types of unhandled rejections
     if (originalUnhandledRejection.length === 0) {
       console.error('Unhandled Rejection:', reason);

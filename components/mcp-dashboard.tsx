@@ -1,25 +1,49 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Server, Activity, Zap, AlertCircle, CheckCircle2, Clock, Settings } from 'lucide-react';
+import {
+  Plus,
+  Server,
+  Activity,
+  Zap,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Settings,
+} from 'lucide-react';
 import type { Session } from 'next-auth';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { MCPServerForm } from '@/components/mcp-server-form';
 import { MCPServerCard } from '@/components/mcp-server-card';
 import { MCPStatsCards } from '@/components/mcp-stats-cards';
 import { MCPRecentActivity } from '@/components/mcp-recent-activity';
 import { MCPDashboardSkeleton } from '@/components/mcp-server-skeleton';
 import { AnimatedServerCard } from '@/components/mcp-animated-card';
-import { MCPAnimatedStats, MCPActivityFeed } from '@/components/mcp-animated-stats';
+import {
+  MCPAnimatedStats,
+  MCPActivityFeed,
+} from '@/components/mcp-animated-stats';
 import { MCPFloatingActions } from '@/components/mcp-floating-actions';
 import { MCPNetworkIndicator } from '@/components/mcp-network-indicator';
 import type {
   MCPServerWithTools,
   MCPDashboardStats,
-  MCPRecentActivity as Activity,
+  MCPRecentActivity,
   MCPHealthCheck,
 } from '@/lib/ai/mcp-types';
 
@@ -30,7 +54,7 @@ interface MCPDashboardProps {
 export function MCPDashboard({ session }: MCPDashboardProps) {
   const [servers, setServers] = useState<MCPServerWithTools[]>([]);
   const [stats, setStats] = useState<MCPDashboardStats | null>(null);
-  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+  const [recentActivity, setRecentActivity] = useState<MCPRecentActivity[]>([]);
   const [serverHealth, setServerHealth] = useState<MCPHealthCheck[]>([]);
   const [loading, setLoading] = useState(true);
   const [isServerDialogOpen, setIsServerDialogOpen] = useState(false);
@@ -58,9 +82,57 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
       setStats(dashboardData.stats);
       setRecentActivity(dashboardData.recentActivity || []);
       setServerHealth(dashboardData.serverHealth || []);
+
+      // Auto-reconnect servers that should be connected but aren't
+      const serversToReconnect = (serversData.servers || []).filter(
+        (server: any) =>
+          server.isEnabled &&
+          server.connectionStatus === 'connected' &&
+          server.connectionState?.status === 'disconnected',
+      );
+
+      if (serversToReconnect.length > 0) {
+        console.log(
+          `🔄 Auto-reconnecting ${serversToReconnect.length} servers...`,
+        );
+
+        // Attempt to reconnect in the background
+        Promise.allSettled(
+          serversToReconnect.map((server: any) =>
+            fetch(`/api/mcp/servers/${server.id}/connect`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'connect' }),
+            }).catch((err) =>
+              console.log(`⚠️  Auto-reconnect failed for ${server.name}:`, err),
+            ),
+          ),
+        ).then(() => {
+          // Refresh data after auto-reconnect attempts
+          setTimeout(() => {
+            loadDashboardData();
+          }, 2000);
+        });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to load data';
+      setError(errorMessage);
       console.error('Error loading dashboard data:', err);
+
+      // Show user-friendly error for common MCP issues
+      if (
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('ECONNREFUSED')
+      ) {
+        setError(
+          'MCP servers are not responding. Check if your servers are running and accessible.',
+        );
+      } else if (errorMessage.includes('ENOTFOUND')) {
+        setError(
+          'Cannot reach MCP servers. Check your server URLs and internet connection.',
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -69,63 +141,87 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
   // Load data on component mount
   useEffect(() => {
     loadDashboardData();
-    
-    // Set up polling for real-time updates
-    const interval = setInterval(loadDashboardData, 10000); // 10 seconds
-    
+
+    // Set up polling for real-time updates - reduced interval for better responsiveness
+    const interval = setInterval(loadDashboardData, 5000); // 5 seconds for better UX
+
     return () => clearInterval(interval);
   }, []);
 
   // Handle server creation
   const handleServerCreated = (newServer: any) => {
-    setServers(prev => [newServer, ...prev]);
+    setServers((prev) => [newServer, ...prev]);
     setIsServerDialogOpen(false);
     loadDashboardData(); // Refresh stats
   };
 
   // Handle server update
   const handleServerUpdated = (updatedServer: any) => {
-    setServers(prev => 
-      prev.map(server => 
-        server.id === updatedServer.id ? { ...server, ...updatedServer } : server
-      )
+    setServers((prev) =>
+      prev.map((server) =>
+        server.id === updatedServer.id
+          ? { ...server, ...updatedServer }
+          : server,
+      ),
     );
-    loadDashboardData(); // Refresh stats
+    
+    // Immediately refresh dashboard data for connection state changes
+    if (updatedServer.connectionState?.status !== undefined) {
+      setTimeout(() => loadDashboardData(), 100); // Brief delay to allow API sync
+    } else {
+      loadDashboardData(); // Refresh stats for other changes
+    }
   };
 
   // Handle server deletion
   const handleServerDeleted = (serverId: string) => {
-    setServers(prev => prev.filter(server => server.id !== serverId));
+    setServers((prev) => prev.filter((server) => server.id !== serverId));
     loadDashboardData(); // Refresh stats
   };
 
   // Handle bulk actions
   const handleConnectAll = async () => {
-    const disconnectedServers = servers.filter(s => s.connectionState?.status !== 'connected');
+    const disconnectedServers = servers.filter(
+      (s) => s.connectionState?.status !== 'connected',
+    );
+    
+    // Set optimistic loading state
+    setLoading(true);
+    
     await Promise.allSettled(
-      disconnectedServers.map(server => 
+      disconnectedServers.map((server) =>
         fetch(`/api/mcp/servers/${server.id}/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'connect' })
-        })
-      )
+          body: JSON.stringify({ action: 'connect' }),
+        }),
+      ),
     );
-    loadDashboardData();
+    
+    // Immediate refresh after bulk actions
+    await loadDashboardData();
   };
 
   const handleDisconnectAll = async () => {
-    const connectedServers = servers.filter(s => s.connectionState?.status === 'connected');
+    const connectedServers = servers.filter(
+      (s) => s.connectionState?.status === 'connected',
+    );
+    
+    // Set optimistic loading state
+    setLoading(true);
+    
     await Promise.allSettled(
-      connectedServers.map(server => 
+      connectedServers.map((server) =>
         fetch(`/api/mcp/servers/${server.id}/connect`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'disconnect' })
-        })
-      )
+          body: JSON.stringify({ action: 'disconnect' }),
+        }),
+      ),
     );
-    loadDashboardData();
+    
+    // Immediate refresh after bulk actions
+    await loadDashboardData();
   };
 
   if (loading && servers.length === 0) {
@@ -159,7 +255,7 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
           </div>
           <MCPNetworkIndicator servers={servers} />
         </div>
-        
+
         <Dialog open={isServerDialogOpen} onOpenChange={setIsServerDialogOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
@@ -181,14 +277,14 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
 
       {/* Stats Cards */}
       {stats && (
-        <MCPAnimatedStats 
+        <MCPAnimatedStats
           stats={{
             totalServers: stats.totalServers,
             connectedServers: stats.connectedServers,
             totalTools: stats.totalTools,
             totalExecutions: stats.totalExecutions,
             avgResponseTime: stats.avgResponseTime,
-            successRate: stats.successRate
+            successRate: stats.successRate,
           }}
           loading={loading}
         />
@@ -210,11 +306,17 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Server className="w-12 h-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No MCP servers configured</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  No MCP servers configured
+                </h3>
                 <p className="text-gray-600 text-center mb-6 max-w-sm">
-                  Get started by adding your first MCP server to enable powerful tools and integrations.
+                  Get started by adding your first MCP server to enable powerful
+                  tools and integrations.
                 </p>
-                <Dialog open={isServerDialogOpen} onOpenChange={setIsServerDialogOpen}>
+                <Dialog
+                  open={isServerDialogOpen}
+                  onOpenChange={setIsServerDialogOpen}
+                >
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="w-4 h-4 mr-2" />
@@ -263,7 +365,10 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
                 <p className="text-sm text-gray-500">No servers to monitor</p>
               ) : (
                 serverHealth.map((health) => (
-                  <div key={health.serverId} className="flex items-center justify-between">
+                  <div
+                    key={health.serverId}
+                    className="flex items-center justify-between"
+                  >
                     <div className="flex items-center gap-2">
                       {health.status === 'active' ? (
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -274,13 +379,19 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
                       ) : (
                         <div className="w-4 h-4 rounded-full bg-gray-300" />
                       )}
-                      <span className="text-sm font-medium truncate">{health.serverId}</span>
+                      <span className="text-sm font-medium truncate">
+                        {health.serverId}
+                      </span>
                     </div>
-                    <Badge 
+                    <Badge
                       variant={
-                        health.status === 'active' ? 'default' :
-                        health.status === 'error' ? 'destructive' :
-                        health.status === 'connecting' ? 'secondary' : 'outline'
+                        health.status === 'active'
+                          ? 'default'
+                          : health.status === 'error'
+                            ? 'destructive'
+                            : health.status === 'connecting'
+                              ? 'secondary'
+                              : 'outline'
                       }
                       className="text-xs"
                     >
@@ -304,20 +415,26 @@ export function MCPDashboard({ session }: MCPDashboardProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="w-full justify-start gap-2"
                 onClick={loadDashboardData}
+                disabled={loading}
               >
-                <Activity className="w-4 h-4" />
-                Refresh All Connections
+                <Activity
+                  className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}
+                />
+                {loading ? 'Refreshing...' : 'Refresh All'}
               </Button>
-              <Dialog open={isServerDialogOpen} onOpenChange={setIsServerDialogOpen}>
+              <Dialog
+                open={isServerDialogOpen}
+                onOpenChange={setIsServerDialogOpen}
+              >
                 <DialogTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full justify-start gap-2"
                   >
                     <Plus className="w-4 h-4" />

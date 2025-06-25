@@ -44,8 +44,138 @@ import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import { processMemoryForUser } from '@/lib/ai/memory-classifier';
+import { AgentCore, createAgentTools } from '@/lib/ai/agent';
+import {
+  agentCommunicationTools,
+  agentCommunicationToolNames,
+} from '@/lib/ai/tools/agent-communication';
 
 export const maxDuration = 30;
+
+// Agent mode detection utilities
+function detectAgentMode(message: any, messages: any[]): boolean {
+  const userText =
+    message.parts
+      ?.filter((part: any) => part.type === 'text')
+      ?.map((part: any) => part.text)
+      ?.join(' ')
+      ?.toLowerCase() || '';
+
+  // Multi-step indicators
+  const multiStepKeywords = [
+    'step by step',
+    'break down',
+    'analyze and',
+    'first.*then',
+    'plan.*execute',
+    'multiple.*steps',
+    'comprehensive.*approach',
+    'detailed.*process',
+    'implement.*strategy',
+    'build.*from.*scratch',
+    'create.*complete',
+    'design.*and.*implement',
+    'research.*and.*develop',
+    'analyze.*optimize',
+    'troubleshoot.*and.*fix',
+    'audit.*and.*improve',
+    'review.*and.*refactor',
+  ];
+
+  // Complex task indicators
+  const complexityKeywords = [
+    'complex',
+    'architecture',
+    'system.*design',
+    'integration',
+    'optimization',
+    'performance.*analysis',
+    'security.*audit',
+    'comprehensive.*review',
+    'full.*implementation',
+    'end.*to.*end',
+    'complete.*solution',
+  ];
+
+  // Tool coordination indicators
+  const toolCoordinationKeywords = [
+    'using.*multiple.*tools',
+    'combine.*tools',
+    'coordinate.*between',
+    'integrate.*with',
+    'use.*together',
+    'leverage.*various',
+  ];
+
+  // Check for patterns
+  const hasMultiStep = multiStepKeywords.some((keyword) =>
+    new RegExp(keyword, 'i').test(userText),
+  );
+
+  const hasComplexity = complexityKeywords.some((keyword) =>
+    new RegExp(keyword, 'i').test(userText),
+  );
+
+  const hasToolCoordination = toolCoordinationKeywords.some((keyword) =>
+    new RegExp(keyword, 'i').test(userText),
+  );
+
+  // Check for conjunctions that suggest multiple steps
+  const hasConjunctions =
+    /\b(and\s+then|after\s+that|next\s+step|following\s+that|subsequently|additionally|furthermore|moreover)\b/i.test(
+      userText,
+    );
+
+  // Check for numbered lists or bullet points
+  const hasNumberedSteps = /\b(\d+[\.\)]|\w+\s*[\.\)])\s*[A-Z]/.test(userText);
+
+  // Check message length (longer messages often require more complex handling)
+  const isLongMessage = userText.length > 200;
+
+  // Check conversation context for complexity buildup
+  const hasComplexContext = messages.length > 3;
+
+  // Scoring system
+  let agentScore = 0;
+  if (hasMultiStep) agentScore += 3;
+  if (hasComplexity) agentScore += 2;
+  if (hasToolCoordination) agentScore += 2;
+  if (hasConjunctions) agentScore += 1;
+  if (hasNumberedSteps) agentScore += 2;
+  if (isLongMessage) agentScore += 1;
+  if (hasComplexContext) agentScore += 1;
+
+  return agentScore >= 3;
+}
+
+function analyzeComplexity(message: any): 'simple' | 'moderate' | 'complex' {
+  const userText =
+    message.parts
+      ?.filter((part: any) => part.type === 'text')
+      ?.map((part: any) => part.text)
+      ?.join(' ')
+      ?.toLowerCase() || '';
+
+  const complexIndicators = [
+    'architecture',
+    'system',
+    'integration',
+    'comprehensive',
+    'complete solution',
+  ];
+  const moderateIndicators = [
+    'analyze',
+    'implement',
+    'create',
+    'design',
+    'build',
+  ];
+
+  if (complexIndicators.some((ind) => userText.includes(ind))) return 'complex';
+  if (moderateIndicators.some((ind) => userText.includes(ind)))
+    return 'moderate';
+  return 'simple';
+}
 
 // Removed complex provider switching - all files are now parsed as text
 
@@ -57,7 +187,9 @@ function getStreamContext() {
   if (!globalStreamContext) {
     // Check if REDIS_URL is available
     if (!process.env.REDIS_URL) {
-      console.log('⚠️ Stream Context: REDIS_URL not found, skipping resumable streams');
+      console.log(
+        '⚠️ Stream Context: REDIS_URL not found, skipping resumable streams',
+      );
       return null;
     }
 
@@ -388,6 +520,24 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    // Agent mode detection - determine if request requires multi-step processing
+    const requiresAgent = detectAgentMode(message, messages);
+    const useAgentMode = requiresAgent && !isReasoningModel(selectedChatModel);
+
+    console.log('🤖 Agent Detection:', {
+      requiresAgent,
+      useAgentMode,
+      complexity: requiresAgent ? analyzeComplexity(message) : 'simple',
+    });
+
+    // Get agent tools if in agent mode
+    const agentTools = useAgentMode
+      ? { ...createAgentTools(), ...agentCommunicationTools }
+      : {};
+    const agentToolNames = useAgentMode
+      ? [...Object.keys(createAgentTools()), ...agentCommunicationToolNames]
+      : [];
+
     // Log context for debugging
     console.log('🤖 AI Context Summary:');
     console.log(`   - Model: ${selectedChatModel}`);
@@ -399,10 +549,16 @@ export async function POST(request: Request) {
       `   - File context length: ${attachedFilesContext?.length || 0} chars`,
     );
     console.log(`   - Messages in context: ${messages.length}`);
-    console.log(`   - Max steps: 5`);
+    const maxSteps = useAgentMode ? 15 : 5; // More steps for agent mode
+    console.log(
+      `   - Max steps: ${maxSteps} ${useAgentMode ? '(Agent mode)' : '(Standard mode)'}`,
+    );
     console.log(
       `   - Tools enabled: ${!isReasoningModel(selectedChatModel) ? 'Yes' : 'No (reasoning model)'}`,
     );
+    if (useAgentMode) {
+      console.log(`   - Agent tools: ${agentToolNames.join(', ')}`);
+    }
 
     if (hasBuiltInReasoning(selectedChatModel)) {
       console.log('   - Reasoning summaries: Enabled (detailed)');
@@ -412,16 +568,16 @@ export async function POST(request: Request) {
     // Get MCP tools for the user (with timeout optimization)
     let mcpTools: Record<string, any> = {};
     let mcpToolNames: string[] = [];
-    
+
     if (!isReasoningModel(selectedChatModel)) {
       try {
         console.log('🔧 Chat API: Loading MCP tools (optimized)...');
-        
-        // Set a timeout for MCP operations to avoid blocking chat
-        const mcpTimeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('MCP timeout')), 5000)
+
+        // Set a shorter timeout for MCP operations to avoid blocking chat
+        const mcpTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('MCP timeout')), 2000),
         );
-        
+
         const mcpOperation = async () => {
           // Get enabled MCP servers for the user
           const enabledServers = await getEnabledMcpServersByUserId({
@@ -438,7 +594,7 @@ export async function POST(request: Request) {
           // Check for already connected clients first
           let tools = await mcpClientManager.getAllTools();
           let names = Object.keys(tools);
-          
+
           if (names.length > 0) {
             console.log(`✅ Using ${names.length} already available MCP tools`);
             return { tools, names };
@@ -447,20 +603,21 @@ export async function POST(request: Request) {
           // Initialize servers and wait for connection
           const initPromises = enabledServers.map(async (server) => {
             let client = mcpClientManager.getClient(server.id);
-            
+
             if (!client) {
               try {
-                const transport = server.transportType === 'stdio' 
-                  ? {
-                      type: 'stdio' as const,
-                      command: server.command!,
-                      args: server.args || undefined,
-                      env: server.env || undefined,
-                    }
-                  : {
-                      type: 'sse' as const,
-                      url: server.url!,
-                    };
+                const transport =
+                  server.transportType === 'stdio'
+                    ? {
+                        type: 'stdio' as const,
+                        command: server.command!,
+                        args: server.args || undefined,
+                        env: server.env || undefined,
+                      }
+                    : {
+                        type: 'sse' as const,
+                        url: server.url!,
+                      };
 
                 await mcpClientManager.addServer(server.id, {
                   transport,
@@ -481,13 +638,19 @@ export async function POST(request: Request) {
               try {
                 await Promise.race([
                   client.connect(),
-                  new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Connect timeout')), 2000)
-                  )
+                  new Promise((_, reject) =>
+                    setTimeout(
+                      () => reject(new Error('Connect timeout')),
+                      2000,
+                    ),
+                  ),
                 ]);
                 console.log(`✅ Connected to MCP server: ${server.name}`);
               } catch (error) {
-                console.warn(`Failed to connect to MCP server ${server.name}:`, error);
+                console.warn(
+                  `Failed to connect to MCP server ${server.name}:`,
+                  error,
+                );
               }
             }
           });
@@ -497,21 +660,25 @@ export async function POST(request: Request) {
           // Get available tools after connection attempts
           tools = await mcpClientManager.getAllTools();
           names = Object.keys(tools);
-          
+
           return { tools, names };
         };
 
         const result = await Promise.race([mcpOperation(), mcpTimeout]);
         mcpTools = result.tools;
         mcpToolNames = result.names;
-        
-        console.log(`✅ Chat API: Loaded ${mcpToolNames.length} MCP tools (fast)`);
+
+        console.log(
+          `✅ Chat API: Loaded ${mcpToolNames.length} MCP tools (fast)`,
+        );
         if (mcpToolNames.length > 0) {
           console.log(`   - Available tools: ${mcpToolNames.join(', ')}`);
         }
       } catch (error) {
         // Fast fail - don't block chat for MCP issues
-        console.log(`⚡ Chat API: MCP tools skipped (${error instanceof Error ? error.message : 'unknown error'}) - proceeding`);
+        console.log(
+          `⚡ Chat API: MCP tools skipped (${error instanceof Error ? error.message : 'unknown error'}) - proceeding`,
+        );
       }
     }
 
@@ -529,12 +696,13 @@ export async function POST(request: Request) {
               requestHints,
               memories: memoriesContext,
               attachedFiles: attachedFilesContext,
+              useAgentMode,
             }),
             messages,
             ...(fileAttachments.length > 0 && {
               experimental_attachments: fileAttachments,
             }),
-            maxSteps: 5,
+            maxSteps,
             experimental_activeTools: isReasoningModel(selectedChatModel)
               ? []
               : [
@@ -542,6 +710,7 @@ export async function POST(request: Request) {
                   'createDocument',
                   'updateDocument',
                   'requestSuggestions',
+                  ...agentToolNames,
                   ...mcpToolNames,
                 ],
             experimental_transform: smoothStream({ chunking: 'line' }),
@@ -563,6 +732,7 @@ export async function POST(request: Request) {
                 session,
                 dataStream,
               }),
+              ...agentTools,
               ...mcpTools,
             },
             onFinish: async ({ response }) => {

@@ -5,28 +5,49 @@ import { ChevronDown, ChevronRight, Zap, Settings2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { 
-  Collapsible, 
-  CollapsibleContent, 
-  CollapsibleTrigger 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import type { MCPServerWithTools } from '@/lib/ai/mcp-types';
 
 interface MCPToolsDropdownProps {
   server: MCPServerWithTools;
+  testResults?: {
+    success: boolean;
+    tools: Array<{ name: string; description: string }>;
+    toolCount: number;
+  } | null;
   onToolToggle?: (toolId: string, enabled: boolean) => void;
 }
 
-export function MCPToolsDropdown({ server, onToolToggle }: MCPToolsDropdownProps) {
+export function MCPToolsDropdown({
+  server,
+  testResults,
+  onToolToggle,
+}: MCPToolsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [toolStates, setToolStates] = useState<Record<string, boolean>>({});
 
-  const tools = server.tools || [];
+  // Use test results if available, otherwise fall back to server tools
+  const tools = testResults?.success
+    ? testResults.tools.map((tool, index) => ({
+        id: `test-${index}`,
+        name: tool.name,
+        description: tool.description,
+        isEnabled: true,
+      }))
+    : server.tools || [];
   const toolCount = tools.length;
 
   const handleToolToggle = (toolId: string, enabled: boolean) => {
-    setToolStates(prev => ({ ...prev, [toolId]: enabled }));
+    setToolStates((prev) => ({ ...prev, [toolId]: enabled }));
     onToolToggle?.(toolId, enabled);
   };
 
@@ -41,9 +62,9 @@ export function MCPToolsDropdown({ server, onToolToggle }: MCPToolsDropdownProps
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger asChild>
-        <Button 
-          variant="ghost" 
-          size="sm" 
+        <Button
+          variant="ghost"
+          size="sm"
           className="gap-2 h-auto p-2 hover:bg-blue-50"
         >
           {isOpen ? (
@@ -57,20 +78,30 @@ export function MCPToolsDropdown({ server, onToolToggle }: MCPToolsDropdownProps
           </Badge>
         </Button>
       </CollapsibleTrigger>
-      
+
       <CollapsibleContent className="mt-2">
         <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
           <div className="p-3 border-b border-gray-100">
             <div className="flex items-center gap-2">
               <Settings2 className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-800">Available Tools</span>
+              <span className="text-sm font-medium text-gray-800">
+                Available Tools
+              </span>
+              {testResults?.success && (
+                <Badge
+                  variant="secondary"
+                  className="text-xs bg-blue-50 text-blue-600"
+                >
+                  Test Results
+                </Badge>
+              )}
             </div>
           </div>
-          
+
           <div className="p-2 space-y-1 max-h-64 overflow-y-auto">
             {tools.map((tool) => (
-              <div 
-                key={tool.id} 
+              <div
+                key={tool.id}
                 className="flex items-center justify-between p-2 rounded-md hover:bg-gray-50 group"
               >
                 <div className="flex-1 min-w-0">
@@ -85,44 +116,54 @@ export function MCPToolsDropdown({ server, onToolToggle }: MCPToolsDropdownProps
                     </p>
                   )}
                 </div>
-                
+
                 <div className="flex items-center gap-2 ml-3">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Switch
                         checked={toolStates[tool.id] ?? true}
-                        onCheckedChange={(enabled) => handleToolToggle(tool.id, enabled)}
-                        size="sm"
+                        onCheckedChange={(enabled) =>
+                          handleToolToggle(tool.id, enabled)
+                        }
                       />
                     </TooltipTrigger>
                     <TooltipContent>
-                      {toolStates[tool.id] ?? true ? 'Disable tool' : 'Enable tool'}
+                      {(toolStates[tool.id] ?? true)
+                        ? 'Disable tool'
+                        : 'Enable tool'}
                     </TooltipContent>
                   </Tooltip>
                 </div>
               </div>
             ))}
           </div>
-          
+
           <div className="p-2 border-t border-gray-100 bg-gray-50">
             <div className="flex items-center justify-between text-xs text-gray-600">
-              <span>{tools.filter(t => toolStates[t.id] ?? true).length} of {toolCount} enabled</span>
+              <span>
+                {tools.filter((t) => toolStates[t.id] ?? true).length} of{' '}
+                {toolCount} enabled
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs"
                 onClick={() => {
-                  const allEnabled = tools.every(t => toolStates[t.id] ?? true);
+                  const allEnabled = tools.every(
+                    (t) => toolStates[t.id] ?? true,
+                  );
                   const newState = !allEnabled;
                   const newStates: Record<string, boolean> = {};
-                  tools.forEach(t => {
+                  tools.forEach((t) => {
                     newStates[t.id] = newState;
                     onToolToggle?.(t.id, newState);
                   });
                   setToolStates(newStates);
                 }}
               >
-                {tools.every(t => toolStates[t.id] ?? true) ? 'Disable All' : 'Enable All'}
+                {tools.every((t) => toolStates[t.id] ?? true)
+                  ? 'Disable All'
+                  : 'Enable All'}
               </Button>
             </div>
           </div>
