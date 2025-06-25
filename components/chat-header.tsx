@@ -68,9 +68,7 @@ function PureChatHeader({
         />
       )}
 
-      {!isReadonly && (
-        <MCPWrenchsToggle className="order-2 md:order-3" />
-      )}
+      {!isReadonly && <MCPWrenchsToggle className="order-2 md:order-3" />}
 
       {!isReadonly && (
         <ShareButton

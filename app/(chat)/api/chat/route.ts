@@ -45,7 +45,7 @@ import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import { processMemoryForUser } from '@/lib/ai/memory-classifier';
 
-export const maxDuration = 60;
+export const maxDuration = 30;
 
 // Removed complex provider switching - all files are now parsed as text
 
@@ -409,74 +409,110 @@ export async function POST(request: Request) {
       console.log('   - Reasoning effort: Medium');
     }
 
-    // Get MCP tools for the user
+    // Get MCP tools for the user (with timeout optimization)
     let mcpTools: Record<string, any> = {};
     let mcpToolNames: string[] = [];
     
     if (!isReasoningModel(selectedChatModel)) {
       try {
-        console.log('🔧 Chat API: Loading MCP tools...');
+        console.log('🔧 Chat API: Loading MCP tools (optimized)...');
         
-        // Get enabled MCP servers for the user
-        const enabledServers = await getEnabledMcpServersByUserId({
-          userId: session.user.id,
-        });
+        // Set a timeout for MCP operations to avoid blocking chat
+        const mcpTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('MCP timeout')), 5000)
+        );
+        
+        const mcpOperation = async () => {
+          // Get enabled MCP servers for the user
+          const enabledServers = await getEnabledMcpServersByUserId({
+            userId: session.user.id,
+          });
 
-        // Initialize servers in client manager if needed
-        for (const server of enabledServers) {
-          const client = mcpClientManager.getClient(server.id);
-          if (!client) {
-            try {
-              const transport = server.transportType === 'stdio' 
-                ? {
-                    type: 'stdio' as const,
-                    command: server.command!,
-                    args: server.args || undefined,
-                    env: server.env || undefined,
-                  }
-                : {
-                    type: 'sse' as const,
-                    url: server.url!,
-                  };
-
-              await mcpClientManager.addServer(server.id, {
-                transport,
-                timeout: server.timeout,
-                maxRetries: server.maxRetries,
-                retryDelay: server.retryDelay,
-              });
-
-              const newClient = mcpClientManager.getClient(server.id);
-              if (newClient && !newClient.isConnected()) {
-                // Attempt to connect in background, don't block chat
-                newClient.connect().catch((error) => {
-                  console.warn(`Failed to connect to MCP server ${server.id}:`, error);
-                });
-              }
-            } catch (error) {
-              console.warn(`Failed to initialize MCP server ${server.id}:`, error);
-            }
+          // Skip MCP setup if no servers to avoid delay
+          if (enabledServers.length === 0) {
+            return { tools: {}, names: [] };
           }
-        }
 
-        // Get all MCP tools from connected servers
-        mcpTools = await mcpClientManager.getAllTools();
-        mcpToolNames = Object.keys(mcpTools);
+          console.log(`🔧 Found ${enabledServers.length} enabled MCP servers`);
+
+          // Check for already connected clients first
+          let tools = await mcpClientManager.getAllTools();
+          let names = Object.keys(tools);
+          
+          if (names.length > 0) {
+            console.log(`✅ Using ${names.length} already available MCP tools`);
+            return { tools, names };
+          }
+
+          // Initialize servers and wait for connection
+          const initPromises = enabledServers.map(async (server) => {
+            let client = mcpClientManager.getClient(server.id);
+            
+            if (!client) {
+              try {
+                const transport = server.transportType === 'stdio' 
+                  ? {
+                      type: 'stdio' as const,
+                      command: server.command!,
+                      args: server.args || undefined,
+                      env: server.env || undefined,
+                    }
+                  : {
+                      type: 'sse' as const,
+                      url: server.url!,
+                    };
+
+                await mcpClientManager.addServer(server.id, {
+                  transport,
+                  timeout: Math.min(server.timeout || 5000, 3000), // Cap at 3s for chat
+                  maxRetries: 0,
+                  retryDelay: server.retryDelay,
+                });
+
+                client = mcpClientManager.getClient(server.id);
+              } catch (error) {
+                console.warn(`Failed to add MCP server ${server.id}:`, error);
+                return;
+              }
+            }
+
+            // Try to connect with timeout
+            if (client && !client.isConnected()) {
+              try {
+                await Promise.race([
+                  client.connect(),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Connect timeout')), 2000)
+                  )
+                ]);
+                console.log(`✅ Connected to MCP server: ${server.name}`);
+              } catch (error) {
+                console.warn(`Failed to connect to MCP server ${server.name}:`, error);
+              }
+            }
+          });
+
+          await Promise.allSettled(initPromises);
+
+          // Get available tools after connection attempts
+          tools = await mcpClientManager.getAllTools();
+          names = Object.keys(tools);
+          
+          return { tools, names };
+        };
+
+        const result = await Promise.race([mcpOperation(), mcpTimeout]);
+        mcpTools = result.tools;
+        mcpToolNames = result.names;
         
-        console.log(`✅ Chat API: Loaded ${mcpToolNames.length} MCP tools from ${enabledServers.length} servers`);
-        
-        // Log MCP tools summary
-        console.log(`   - MCP tools: ${mcpToolNames.length} available`);
+        console.log(`✅ Chat API: Loaded ${mcpToolNames.length} MCP tools (fast)`);
         if (mcpToolNames.length > 0) {
-          console.log(`   - MCP tool names: ${mcpToolNames.join(', ')}`);
+          console.log(`   - Available tools: ${mcpToolNames.join(', ')}`);
         }
       } catch (error) {
-        console.warn('⚠️ Chat API: Failed to load MCP tools:', error);
-        // Continue without MCP tools - don't fail the chat
-        console.log(`   - MCP tools: 0 available (failed to load)`);
+        // Fast fail - don't block chat for MCP issues
+        console.log(`⚡ Chat API: MCP tools skipped (${error instanceof Error ? error.message : 'unknown error'}) - proceeding`);
       }
-    } else {
-      console.log(`   - MCP tools: 0 available (reasoning model)`);
     }
 
     console.log('🚀 Chat API: Creating data stream...');
@@ -508,7 +544,7 @@ export async function POST(request: Request) {
                   'requestSuggestions',
                   ...mcpToolNames,
                 ],
-            experimental_transform: smoothStream({ chunking: 'word' }),
+            experimental_transform: smoothStream({ chunking: 'line' }),
             experimental_generateMessageId: generateUUID,
             // Add reasoning configuration for o3 models
             ...(hasBuiltInReasoning(selectedChatModel) && {

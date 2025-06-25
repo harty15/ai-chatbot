@@ -62,48 +62,35 @@ export function Chat({
   } = useChat({
     id,
     initialMessages,
-    experimental_throttle: 100,
+    experimental_throttle: 50,
     sendExtraMessageFields: true,
     generateId: generateUUID,
     fetch: fetchWithErrorHandlers,
     experimental_prepareRequestBody: (body) => {
-      console.log('🔄 Chat: Preparing request body...', {
-        chatId: id,
-        messageCount: body.messages.length,
-        lastMessage: body.messages.at(-1)?.content?.slice(0, 100) + '...',
-        selectedChatModel,
-        visibilityType,
-      });
+      // Optimized request preparation
       return {
         id,
         message: body.messages.at(-1),
-        selectedChatModel: selectedChatModel,
+        selectedChatModel,
         selectedVisibilityType: visibilityType,
       };
     },
     onFinish: () => {
-      console.log('✅ Chat: Message finished successfully');
-      mutate(unstable_serialize(getChatHistoryPaginationKey));
+      // Debounced cache invalidation
+      setTimeout(() => {
+        mutate(unstable_serialize(getChatHistoryPaginationKey));
+      }, 100);
     },
     onError: (error) => {
-      console.error('❌ Chat: Error occurred:', error);
-      if (error instanceof ChatSDKError) {
-        console.error('❌ Chat: ChatSDKError details:', {
-          message: error.message,
-          code: error.code,
-          surface: error.surface,
-        });
-        toast({
-          type: 'error',
-          description: error.message,
-        });
-      } else {
-        console.error('❌ Chat: Unexpected error:', error);
-        toast({
-          type: 'error',
-          description: 'An unexpected error occurred. Please try again.',
-        });
-      }
+      // Streamlined error handling
+      const message = error instanceof ChatSDKError 
+        ? error.message 
+        : 'An unexpected error occurred. Please try again.';
+      
+      toast({
+        type: 'error',
+        description: message,
+      });
     },
   });
 
@@ -140,24 +127,12 @@ export function Chat({
     setMessages,
   });
 
-  // Add status monitoring
+  // Optimized monitoring (dev only)
   useEffect(() => {
-    console.log('🔄 Chat: Status changed:', status);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 Status:', status);
+    }
   }, [status]);
-
-  useEffect(() => {
-    console.log('📝 Chat: Messages updated:', {
-      count: messages.length,
-      lastMessage: messages.at(-1)?.content?.slice(0, 100) + '...' || 'No messages',
-    });
-  }, [messages]);
-
-  useEffect(() => {
-    console.log('💭 Chat: Input changed:', {
-      length: input.length,
-      preview: input.slice(0, 50) + (input.length > 50 ? '...' : ''),
-    });
-  }, [input]);
 
   return (
     <>

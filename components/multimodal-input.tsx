@@ -109,24 +109,30 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const submitForm = useCallback(() => {
-    console.log('🚀 MultimodalInput: Submitting form...', {
-      chatId,
-      inputLength: input.length,
-      attachmentCount: attachments.length,
-      status,
-      inputPreview: input.slice(0, 100) + (input.length > 100 ? '...' : ''),
-    });
+    // Prevent double submission
+    if (isSubmitting) {
+      console.log('🔄 MultimodalInput: Already submitting, ignoring...');
+      return;
+    }
 
     if (status !== 'ready') {
-      console.warn('⚠️ MultimodalInput: Attempted to submit while not ready, status:', status);
+      toast.error('Please wait for the model to finish its response!');
       return;
     }
 
     if (!input.trim() && attachments.length === 0) {
-      console.warn('⚠️ MultimodalInput: Attempted to submit empty message');
+      toast.error('Please enter a message or attach a file');
       return;
     }
+
+    setIsSubmitting(true);
+    console.log('🚀 MultimodalInput: Submitting...', {
+      inputLength: input.length,
+      attachmentCount: attachments.length,
+    });
 
     window.history.replaceState({}, '', `/chat/${chatId}`);
 
@@ -134,20 +140,24 @@ function PureMultimodalInput({
       handleSubmit(undefined, {
         experimental_attachments: attachments,
       });
-      console.log('✅ MultimodalInput: handleSubmit called successfully');
+      
+      // Clear form immediately for snappier UX
+      setAttachments([]);
+      setLocalStorageInput('');
+      resetHeight();
+
+      if (width && width > 768) {
+        textareaRef.current?.focus();
+      }
     } catch (error) {
-      console.error('❌ MultimodalInput: Error in handleSubmit:', error);
-      return;
-    }
-
-    setAttachments([]);
-    setLocalStorageInput('');
-    resetHeight();
-
-    if (width && width > 768) {
-      textareaRef.current?.focus();
+      console.error('❌ MultimodalInput: Error:', error);
+      toast.error('Failed to send message. Please try again.');
+    } finally {
+      // Reset submission state after a short delay
+      setTimeout(() => setIsSubmitting(false), 1000);
     }
   }, [
+    isSubmitting,
     attachments,
     handleSubmit,
     setAttachments,
@@ -377,12 +387,7 @@ function PureMultimodalInput({
             !event.nativeEvent.isComposing
           ) {
             event.preventDefault();
-
-            if (status !== 'ready') {
-              toast.error('Please wait for the model to finish its response!');
-            } else {
-              submitForm();
-            }
+            submitForm();
           }
         }}
       />
@@ -399,6 +404,7 @@ function PureMultimodalInput({
             input={input}
             submitForm={submitForm}
             uploadQueue={uploadQueue}
+            isSubmitting={isSubmitting}
           />
         )}
       </div>
@@ -472,22 +478,31 @@ function PureSendButton({
   submitForm,
   input,
   uploadQueue,
+  isSubmitting,
 }: {
   submitForm: () => void;
   input: string;
   uploadQueue: Array<string>;
+  isSubmitting: boolean;
 }) {
+  const isDisabled = input.length === 0 || uploadQueue.length > 0 || isSubmitting;
+  
   return (
     <Button
       data-testid="send-button"
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      className={cx(
+        "rounded-full p-1.5 h-fit border dark:border-zinc-600 transition-all duration-200",
+        isDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-50 dark:hover:bg-blue-900/20"
+      )}
       onClick={(event) => {
         event.preventDefault();
-        submitForm();
+        if (!isDisabled) {
+          submitForm();
+        }
       }}
-      disabled={input.length === 0 || uploadQueue.length > 0}
+      disabled={isDisabled}
     >
-      <ArrowUpIcon size={14} />
+      <ArrowUpIcon size={14} className={isSubmitting ? "animate-pulse" : ""} />
     </Button>
   );
 }
@@ -496,5 +511,6 @@ const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
   if (prevProps.uploadQueue.length !== nextProps.uploadQueue.length)
     return false;
   if (prevProps.input !== nextProps.input) return false;
+  if (prevProps.isSubmitting !== nextProps.isSubmitting) return false;
   return true;
 });

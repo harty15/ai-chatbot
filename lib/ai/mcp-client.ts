@@ -48,10 +48,24 @@ export class MCPClient {
     this.connectionState.status = 'connecting';
     this.emitEvent({ type: 'connection_status_changed', status: 'connecting' });
 
-    this.connectionPromise = this._performConnection();
+    this.connectionPromise = this._performConnection().catch((error) => {
+      // Always handle connection errors to prevent unhandled rejections
+      console.warn(`MCP connection failed for server ${this.serverId}:`, error);
+      this.connectionState.status = 'error';
+      this.connectionState.lastError = error.message || 'Connection failed';
+      this.emitEvent({ 
+        type: 'connection_status_changed', 
+        status: 'error',
+        error: error.message 
+      });
+      throw error;
+    });
     
     try {
       await this.connectionPromise;
+    } catch (error) {
+      // Re-throw but ensure it's handled
+      throw error;
     } finally {
       this.connectionPromise = null;
     }
@@ -583,3 +597,27 @@ export class MCPClientManager {
 
 // Global MCP client manager instance
 export const mcpClientManager = new MCPClientManager();
+
+// Add global error handlers for MCP-related unhandled rejections
+if (typeof process !== 'undefined') {
+  const originalUnhandledRejection = process.listeners('unhandledRejection');
+  
+  process.on('unhandledRejection', (reason: any, promise) => {
+    // Check if this is an MCP-related error
+    if (reason && (
+      reason.message?.includes('terminated') ||
+      reason.message?.includes('SocketError') ||
+      reason.message?.includes('other side closed') ||
+      reason.code === 'UND_ERR_SOCKET'
+    )) {
+      // Log it but don't crash the process
+      console.warn('MCP socket connection closed unexpectedly:', reason.message || reason);
+      return;
+    }
+    
+    // Re-emit for other types of unhandled rejections
+    if (originalUnhandledRejection.length === 0) {
+      console.error('Unhandled Rejection:', reason);
+    }
+  });
+}

@@ -43,7 +43,7 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toggleLoading, setToggleLoading] = useState(false);
 
-  const connectionStatus = server.connectionState.status;
+  const connectionStatus = server.connectionState?.status || 'disconnected';
   const isConnected = connectionStatus === 'connected';
   const isConnecting = connectionStatus === 'connecting';
   const hasError = connectionStatus === 'error';
@@ -253,7 +253,7 @@ export function MCPServerCard({ server, onUpdate, onDelete }: MCPServerCardProps
           </div>
         )}
 
-        {server.connectionState.lastError && (
+        {server.connectionState?.lastError && (
           <div className="mb-4 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
             {server.connectionState.lastError}
           </div>
